@@ -1,0 +1,137 @@
+intOffSet===>number===>5
+voffset_temp==>number==>0
+vHasMoreRecords==>Boolean==>false
+
+
+ "searchObj": {
+      "type": {
+        "IN_LIMIT": "number",
+        "IN_OFFSET": "string",
+        "P_CATERING_TYPE": "string",
+        "P_EMPLOYEE_NUMBER": "string",
+        "P_FROM_DATE": "string",
+        "P_PERSON_ID": "string",
+        "P_REQNUMBER": "string",
+        "P_SORT_ORDER": "string",
+        "P_STATUS": "string",
+        "P_TO_DATE": "string",
+        "P_WEBAPPTYPE": "string"
+      },
+      "defaultValue": {
+        "IN_LIMIT": 10,
+        "IN_OFFSET": "0",
+        "P_WEBAPPTYPE": "[[ $application.constants.appType ]]",
+        "P_PERSON_ID": "[[ $application.variables.getEmployeeDetails.person_id ]]"
+      }
+    }
+	
+
+HTML
+
+  <div class="oj-flex">
+  <div class="oj-flex-item oj-sm-12 oj-md-1"></div>
+  <div class="oj-flex-item oj-sm-12 oj-flex oj-md-6">
+    <div class="oj-flex-item oj-sm-12 oj-md-8"></div>
+    <div class="oj-flex-item oj-sm-12 oj-md-2">
+      <oj-button label="Prev" chroming="borderless"
+        disabled="[[ $variables.voffset_temp === undefined || $variables.voffset_temp === 0 ]]"
+        on-oj-action="[[$listeners.buttonAction]]"
+       >
+        <span slot="startIcon" class="oj-ux-ico-back"></span>
+      </oj-button>
+    </div>
+    <div class="oj-flex-item oj-sm-12 oj-md-2">
+      <oj-button label="Next" chroming="borderless" disabled="[[ $variables.vHasMoreRecords === false ]]"
+        on-oj-action="[[$listeners.buttonAction2]]"
+       >
+        <span slot="endIcon" class="oj-ux-ico-forward-next"></span>
+      </oj-button>
+    </div>
+  </div>
+</div>	
+
+
+**********************************************
+Prev: Btn : Action Chain
+
+$variables.voffset_temp = {{ $variables.voffset_temp-$constants.intOffSet }}
+
+searchAC
+
+**********************************************
+Next: Btn : Action Chain
+
+$variables.voffset_temp = {{ $variables.voffset_temp-$constants.intOffSet }}
+
+searchAC
+**********************************************
+REST Call 
+if out_count >0
+RESET:  Reset Variables
+data to adp
+hasmore map to variable
+	OUT_HAS_NEXT==N
+	vHasMoreRecords=false
+else
+	vHasMoreRecords=true
+---------------------------
+FireDate-Refresh 
+
+**********************************************
+Search Code 
+define([
+  'vb/action/actionChain',
+  'vb/action/actions',
+  'vb/action/actionUtils',
+], (
+  ActionChain,
+  Actions,
+  ActionUtils
+) => {
+  'use strict';
+
+  class searchAC extends ActionChain {
+
+    /**
+     * @param {Object} context
+     */
+    async run(context) {
+      const { $page, $flow, $application, $constants, $variables } = context;
+
+      const response = await Actions.callRest(context, {
+        endpoint: 'hrmsmodule/postFindbySearchCateringRequest',
+        body: $variables.searchObj,
+      });
+
+      if (response.body.OUT_COUNT > 0) {
+        await Actions.resetVariables(context, {
+          variables: [
+    '$page.variables.searchCateringRequestADP',
+  ],
+        });
+
+        $variables.searchCateringRequestADP.data = response.body.P_OUTPUT;
+        $variables.vHasMoreRecords = response.body.OUT_HAS_NEXT;
+
+        if (response.body.OUT_HAS_NEXT === 'N') {
+          $variables.vHasMoreRecords = false;
+        } else {
+          $variables.vHasMoreRecords = true;
+        }
+
+        await Actions.fireDataProviderEvent(context, {
+          refresh: null,
+          target: $variables.searchCateringRequestADP,
+        });
+      } else {
+        await Actions.resetVariables(context, {
+          variables: [
+    '$page.variables.searchCateringRequestADP',
+  ],
+        });
+      }
+    }
+  }
+
+  return searchAC;
+});
