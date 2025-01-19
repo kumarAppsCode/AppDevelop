@@ -1,0 +1,276 @@
+CREATE OR REPLACE PACKAGE FS_NWS_SEARCH_ATTENDACE_PKG AS
+ 
+PROCEDURE GET_ATTENDANCE_RECORD (
+   in_limit				IN NUMBER,
+   in_offset			IN VARCHAR2,
+   p_webapptype         IN VARCHAR2 DEFAULT NULL,
+   p_from_date          IN VARCHAR2 DEFAULT NULL,
+   p_to_date            IN VARCHAR2 DEFAULT NULL,
+   p_status             IN VARCHAR2 DEFAULT NULL,
+   p_attendace_type     IN VARCHAR2 DEFAULT NULL,
+   p_person_id          IN VARCHAR2 DEFAULT NULL,   
+   p_depId              IN VARCHAR2 DEFAULT NULL,
+   p_directorate_id     IN VARCHAR2 DEFAULT NULL,
+   p_senior_directorate_id IN VARCHAR2 DEFAULT NULL,
+   out_status				OUT		VARCHAR2,
+   out_description			OUT		VARCHAR2,
+   out_has_next			    OUT		VARCHAR2,
+   out_total_count			OUT		NUMBER,
+   out_count				OUT		NUMBER,
+   p_output		            OUT		SYS_REFCURSOR
+--   p_output             OUT VARCHAR2
+    );
+
+END FS_NWS_SEARCH_ATTENDACE_PKG;
+
+/
+
+
+CREATE OR REPLACE PACKAGE BODY FS_NWS_SEARCH_ATTENDACE_PKG 
+AS
+ 
+
+procedure GET_ATTENDANCE_RECORD (
+   in_limit				IN NUMBER,
+   in_offset			IN VARCHAR2,
+   p_webapptype         IN VARCHAR2 DEFAULT NULL,
+   p_from_date          IN VARCHAR2 DEFAULT NULL,
+   p_to_date            IN VARCHAR2 DEFAULT NULL,
+   p_status             IN VARCHAR2 DEFAULT NULL,
+   p_attendace_type     IN VARCHAR2 DEFAULT NULL,
+   p_person_id          IN VARCHAR2 DEFAULT NULL,   
+   p_depId              IN VARCHAR2 DEFAULT NULL,
+   p_directorate_id     IN VARCHAR2 DEFAULT NULL,
+   p_senior_directorate_id IN VARCHAR2 DEFAULT NULL,
+   out_status				OUT		VARCHAR2,
+   out_description			OUT		VARCHAR2,
+   out_has_next			    OUT		VARCHAR2,
+   out_total_count			OUT		NUMBER,
+   out_count				OUT		NUMBER,
+   p_output		            OUT		SYS_REFCURSOR
+--   p_output             OUT VARCHAR2
+) IS
+
+--
+		--Local Variable Declaration--
+		lv_error_message 		VARCHAR2(2000) 					:= 		NULL;
+		lv_status        		CHAR(1)        					:= 		'N';
+		lv_employee_records		SYS_REFCURSOR;
+		lv_total_count			NUMBER;
+		lv_count				NUMBER;
+
+		--Local Exception Declaration--
+		lexp_custom	 			EXCEPTION;
+--
+        l_cur          SYS_REFCURSOR;
+        l_personcolumn fs_emp_timecard_v.person_id%TYPE;
+        l_sql          VARCHAR2(4000);
+        l_sql_count    VARCHAR2(4000);
+        l_current_count_sql VARCHAR2(4000);
+        l_where  VARCHAR2(4000) := ' AND 1=1';
+        l_sql_err    VARCHAR2(4000):='select ''a'' as xml from dual';
+
+BEGIN
+
+    if(p_from_date!='undefined' and p_from_date is not null) then 
+      l_where:=l_where|| ' AND TO_DATE(TIMECARD_DATE)>= to_date('''||p_from_date||''', ''YYYY-mm-dd'')';
+    end if ;
+
+    if(p_to_date!='undefined' and p_to_date is not null) then 
+      l_where:=l_where|| ' AND TO_DATE(TIMECARD_DATE)<= to_date('''||p_to_date||''', ''YYYY-mm-dd'')';
+    end if ;
+
+    if(p_status!='undefined' and p_status is not null) then 
+        l_where     := l_where || ' AND UPPER(status) LIKE ''%' || UPPER(p_status) || '%''';
+    end if;
+
+   if(p_webapptype='EMP') then 
+        if(p_person_id!='undefined' AND p_person_id IS NOT NULL) then 
+            l_where := l_where|| ' AND PERSON_ID='||p_person_id;
+        else
+            l_where := l_where|| ' AND PERSON_ID=0';    
+        end if;
+   end if;
+
+   if(p_webapptype='MAN') then 
+            if(p_person_id!='undefined' AND p_person_id IS NOT NULL) then 
+            l_where := l_where|| ' AND PERSON_ID='||p_person_id;
+        else
+            l_where := l_where|| ' AND PERSON_ID=0';    
+        end if;
+   end if;
+
+   if(p_webapptype='IT') then 
+        if(p_attendace_type='EMPLOYEE') then 
+            if(p_person_id!='undefined' AND p_person_id IS NOT NULL) then 
+                l_where := l_where|| ' AND PERSON_ID='||p_person_id;
+            else
+                l_where := l_where|| ' AND PERSON_ID=1';    
+            end if;
+        end if;
+--
+        if(p_attendace_type='DEPARTMENT') then 
+            if(p_person_id!='undefined' AND p_person_id IS NOT NULL) then 
+             l_where := l_where|| ' AND PERSON_ID='||p_person_id;       
+            end if;
+            --departmentCheck
+            if(p_depId!='undefined' and p_depId is not null) then
+              l_where := l_where|| ' AND PERSON_ID in (SELECT PERSON_ID FROM FS_EMPLOYEE_DETAIL_NEW_V WHERE 1=1 and person_id=person_id+0 and DEPARTMENT_ID='||p_depId||')';       
+            end if;
+        end if;
+----    DIRECTORATE
+    if(p_attendace_type='DIRECTORATE') then 
+        if(p_person_id!='undefined' and p_person_id is not null) then 
+         l_where := l_where|| ' AND PERSON_ID='||p_person_id;       
+        end if;
+        --Department Check
+        if(p_depId!='undefined' and p_depId is not null) then
+          l_where := l_where|| ' AND PERSON_ID in (SELECT PERSON_ID FROM FS_EMPLOYEE_DETAIL_NEW_V WHERE 1=1 and person_id=person_id+0 and DEPARTMENT_ID='||p_depId||')';       
+        end if;
+        --Directorate Check
+        if(p_directorate_id!='undefined' and p_directorate_id is not null) then
+          l_where := 
+          ' AND PERSON_ID in (
+            SELECT DISTINCT PERSON_ID FROM FS_EMPLOYEE_DETAIL_NEW_V 
+            WHERE DEPARTMENT_ID IN(
+            SELECT 
+            distinct DEPARTMENT_ID 
+            FROM fs_organization_hierarchy
+            where  
+            DEPARTMENT_ID IS NOT NULL
+            AND DIRECTORATE_ID='||p_directorate_id||'))';
+        end if;
+    end if;   
+----    DIRECTORATE
+    if(p_attendace_type='SENIOR_DIRECTORATE') then 
+        if(p_person_id!='undefined' and p_person_id is not null) then 
+         l_where := l_where|| ' AND PERSON_ID='||p_person_id;       
+        end if;
+        --departmentCheck
+        if(p_depId!='undefined' and p_depId is not null) then
+          l_where := l_where|| ' AND PERSON_ID in (SELECT PERSON_ID FROM FS_EMPLOYEE_DETAIL_NEW_V WHERE 1=1 and person_id=person_id+0 and DEPARTMENT_ID='||p_depId||')';       
+        end if;
+        --directorateCheck
+        if(p_directorate_id!='undefined' and p_directorate_id is not null) then
+          l_where := 
+          ' AND PERSON_ID in (
+            SELECT DISTINCT PERSON_ID FROM FS_EMPLOYEE_DETAIL_NEW_V 
+            WHERE 
+            1=1 AND PERSON_ID=PERSON_ID+0
+            AND DEPARTMENT_ID IN(
+            SELECT 
+            distinct DEPARTMENT_ID 
+            FROM fs_organization_hierarchy
+            where  
+            DEPARTMENT_ID IS NOT NULL
+            AND DIRECTORATE_ID='||p_directorate_id||'))';
+        end if;
+        --SENIOR directorateCheck
+        if(p_senior_directorate_id!='undefined' and p_senior_directorate_id is not null) then
+          l_where := 
+          ' AND PERSON_ID in (
+            SELECT DISTINCT PERSON_ID FROM FS_EMPLOYEE_DETAIL_NEW_V 
+            WHERE 
+            1=1 AND PERSON_ID=PERSON_ID+0
+            AND DEPARTMENT_ID IN(
+            SELECT 
+            distinct DEPARTMENT_ID 
+            FROM fs_organization_hierarchy
+            where  
+            SENIOR_DIRECTORATE_ID IS NOT NULL
+            AND SENIOR_DIRECTORATE_ID='||p_senior_directorate_id||'))';
+        end if;
+    end if; 
+   end if;
+----
+DBMS_OUTPUT.PUT_LINE('l_where'||l_where);	
+-- START: Chech total count of records  as per conditions --
+		BEGIN
+            l_sql_count:='SELECT  count(*) FROM fs_emp_timecard_v WHERE 1 = 1 and person_id = person_id + 0 AND timecard_date = timecard_date + 0 '|| l_where;
+
+            EXECUTE IMMEDIATE 
+            l_sql_count
+            INTO 
+            lv_total_count;
+
+		EXCEPTION
+			WHEN NO_DATA_FOUND THEN
+              lv_total_count        :=0;
+			  lv_status 			:=	'Y';
+			  lv_error_message		:= 	'No records found. ' || SQLCODE|| '-' || SQLERRM;
+			  RAISE 	  			lexp_custom;
+			WHEN OTHERS THEN
+			  lv_total_count        :=0;
+              lv_status 			:=	'Y';
+			  lv_error_message		:= 	'Failed at get total count of employee records step. ' || SQLCODE|| '-' || SQLERRM;
+			  RAISE 	  			lexp_custom;
+		 END;
+-- END: Chech total count of records  as per conditions --
+
+		IF lv_total_count > 0 THEN
+
+            l_sql:='SELECT rd.* FROM fs_emp_timecard_v rd WHERE rd.person_id = rd.person_id + 0 AND rd.timecard_date = rd.timecard_date + 0' 
+            || l_where
+            || ' ORDER BY  person_id, timecard_date  desc'
+			|| ' OFFSET '
+			||	in_offset ||' ROWS'
+			|| ' FETCH NEXT '||in_limit||' ROWS ONLY';
+		END IF;
+--
+         BEGIN
+            l_current_count_sql:='SELECT COUNT(*) FROM ( SELECT * FROM fs_emp_timecard_v rd WHERE rd.person_id = rd.person_id + 0 AND rd.timecard_date = rd.timecard_date + 0' 
+                || l_where
+                || ' OFFSET '
+                ||	in_offset ||' ROWS'
+                || ' FETCH NEXT '||in_limit||' ROWS ONLY'
+                ||')';
+
+                EXECUTE IMMEDIATE 
+                l_current_count_sql
+                INTO 
+                out_count;
+            EXCEPTION
+                WHEN NO_DATA_FOUND THEN
+                  out_count             :=0;
+                  lv_status 			:=	'Y';
+                  lv_error_message		:= 	'No records found. ' || SQLCODE|| '-' || SQLERRM;
+                  RAISE 	  			lexp_custom;
+                WHEN OTHERS THEN
+                  out_count             :=0;
+                  lv_status 			:=	'Y';
+                  lv_error_message		:= 	'Failed at get total count records step. ' || SQLCODE|| '-' || SQLERRM;
+                  RAISE 	  			lexp_custom;
+             END;
+
+			IF (out_count + in_offset) >= lv_total_count THEN
+				out_has_next	:=	'N';
+			ELSE
+				out_has_next	:=	'Y';
+			END IF;
+
+
+        IF lv_status = 'N' THEN
+				out_status      := 'SUCCESS';
+				out_description := 'Successfully fetched employee records';
+--              out_description	:=l_current_count_sql;
+                out_total_count	:=lv_total_count;
+                OPEN p_output FOR l_sql;
+		ELSE
+				out_status      := 'ERROR';
+				out_description := lv_error_message;
+                out_total_count	:=lv_total_count;
+                OPEN p_output FOR l_sql_err;
+		END IF;
+
+EXCEPTION WHEN OTHERS THEN 
+    out_has_next	:=	'N';
+	out_total_count	:=	0;
+	out_count		:=	0;
+	out_status      := 'ERROR';
+	out_description := 'ERROR Description: ' ||lv_error_message;
+    OPEN p_output FOR l_sql_err;
+END GET_ATTENDANCE_RECORD;
+
+
+END FS_NWS_SEARCH_ATTENDACE_PKG;
+/
