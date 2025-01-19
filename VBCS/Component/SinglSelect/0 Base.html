@@ -1,0 +1,30 @@
+<oj-select-single id="oj-input-text-651077415-312" style="width: 22rem; border-radius:7px;"
+  label-hint="PO Number" data="[[$variables.getPoheaderAllListSDP]]" item-text="po_number"
+  value="{{ $variables.transObj.poNumber }}" on-value-item-changed="[[$listeners.ojInputText6510774151ValueItem]]"
+  required="true">
+	<template slot="collectionTemplate" data-oj-as="collection">
+		<oj-table scroll-policy="loadMoreOnScroll" horizontal-grid-visible="disabled"
+		vertical-grid-visible="disabled" selection-mode='{"row": "single"}' columns-default='{"resizable": "disabled",
+		"sortable": "disabled"}' class="oj-select-results" 
+		columns='[{"headerText":"PO Type","field":"po_type"},{"headerText":"PO Number","field":"po_number"},{"headerText":"PO Amount","field":"po_amount"},{"headerText":"Supplier Name","field":"vendor_name"},{"headerText":"Description","field":"description"},{"headerText":"Agreement Number","field":"agreement_number"}]' 
+		on-oj-row-action="[[collection.handleRowAction]]"
+		data="[[collection.data]]" selected.row="[[collection.selected]]"
+		current-row="{{collection.currentRow}}">
+		</oj-table>
+    </template>
+	<template slot="cellTemplate" data-oj-as="cell">
+		<oj-highlight-text text='[[String(cell.data)]]' ></oj-highlight-text>
+    </template>
+</oj-select-single>
+
+
+[
+    {
+        "headerText": "Customer Name",
+        "field": "po_type"
+    },
+    {
+        "headerText": "Customer Number",
+        "field": "po_number"
+    }
+]
