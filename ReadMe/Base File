@@ -5,3 +5,15 @@ new
 #Ramadevi431299
 
 
+
+
+git remote add GitHub https://kumarAppsCode:${GitHubPersonalAccessToken}@github.com/kumarAppsCode/FirstApp.git
+
+git status
+
+git add .
+
+git commit -m "Auto commit from build" || echo "No changes to commit"
+
+git push --force GitHub main
+
