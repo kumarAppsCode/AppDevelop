@@ -1,12 +1,3 @@
-old
-#Ramadevi431200
-
-new
-#Ramadevi431299
-
-
-
-
 git remote add GitHub https://kumarAppsCode:${GitHubPersonalAccessToken}@github.com/kumarAppsCode/FirstApp.git
 
 git status
