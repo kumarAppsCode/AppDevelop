@@ -14,7 +14,4 @@ git commit -m "Auto commit from build" || echo "No changes to commit"
 git push --force GitHub main
 
 
-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
-
-
-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
+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
