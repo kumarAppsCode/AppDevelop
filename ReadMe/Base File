@@ -1,5 +1,10 @@
 git remote add GitHub https://kumarAppsCode:${GitHubPersonalAccessToken}@github.com/kumarAppsCode/FirstApp.git
 
+
+
+git remote add GitHub https://kumarAppsCode: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@github.com/kumarAppsCode/FirstApp.git
+
+
 git status
 
 git add .
