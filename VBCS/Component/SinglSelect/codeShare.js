@@ -66,6 +66,25 @@ define([
           await Actions.callChain(context, {
             chain: 'searchAC',
           });
+        } else {
+
+          await Actions.fireNotificationEvent(context, {
+            summary: 'Error in Integration Process',
+            type: 'info',
+          });
+
+          await Actions.callChain(context, {
+            chain: 'searchAC',
+          });
+
+          const reprocessDialogClose = await Actions.callComponentMethod(context, {
+            selector: '#reprocessDialog',
+            method: 'close',
+          });
+          const progressDialogClose3 = await Actions.callComponentMethod(context, {
+            selector: '#progressDialog',
+            method: 'close',
+          });
         }
       } else {
         const progressDialogClose2 = await Actions.callComponentMethod(context, {
