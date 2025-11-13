@@ -70,7 +70,7 @@ define([
 
           await Actions.fireNotificationEvent(context, {
             summary: 'Error in Integration Process',
-            type: 'info',
+            type: 'error',
           });
 
           await Actions.callChain(context, {
