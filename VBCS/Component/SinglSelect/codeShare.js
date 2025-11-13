@@ -20,13 +20,19 @@ define([
     async run(context, { event, originalEvent }) {
       const { $page, $flow, $application, $constants, $variables } = context;
 
-    let lvFromDate=  await this.formatDate(context, { dateValue: $variables.reProcessObj.FromDate });
-    let lvToDate=  await this.formatDate(context, { dateValue: $variables.reProcessObj.ToDate });
+      console.log("FromDate==>"+$variables.reProcessObj.FromDate);
+      console.log("ToDate==>"+$variables.reProcessObj.ToDate);
 
-      $variables.reProcessObj_lv.FromDate=lvFromDate;
-      $variables.reProcessObj_lv.ToDate=lvToDate;
-      $variables.reProcessObj_lv.PeriodName=$variables.reProcessObj.PeriodName;
-      $variables.reProcessObj_lv.LegalEntity=$variables.reProcessObj.LegalEntity;
+      let lvFromDate = await this.formatDate(context, { dateValue: $variables.reProcessObj.FromDate });
+      let lvToDate = await this.formatDate(context, { dateValue: $variables.reProcessObj.ToDate });
+
+      console.log("Formatted FromDate==>"+lvFromDate);
+      console.log("Formatted ToDate==>"+lvToDate);
+
+      $variables.reProcessObj_lv.FromDate = lvFromDate;
+      $variables.reProcessObj_lv.ToDate = lvToDate;
+      $variables.reProcessObj_lv.PeriodName = $variables.reProcessObj.PeriodName;
+      $variables.reProcessObj_lv.LegalEntity = $variables.reProcessObj.LegalEntity;
 
 
       if ($variables.intForm === 'valid') {
@@ -75,23 +81,54 @@ define([
     }
 
     /**
+     * CORRECTED: Parse date string directly to avoid timezone conversion issues
+     * 
      * @param {Object} context
      * @param {Object} params
-     * @param {string} params.dateValue
-     * @return {string} 
+     * @param {string} params.dateValue - Input format: YYYY-MM-DD (e.g., 2025-05-05)
+     * @return {string} - Output format: MM-DD-YYYY (e.g., 05-05-2025)
+     * 
+     * WHY THIS WORKS:
+     * - OLD: new Date("2025-05-05") → Parsed as UTC → Local timezone conversion → Wrong date
+     * - NEW: Split string directly → No timezone conversion → Correct date always
      */
     async formatDate(context, { dateValue }) {
       const { $page, $flow, $application, $constants, $variables } = context;
     
-      if (!dateValue) return "";
+      if (!dateValue) {
+        console.warn('formatDate: dateValue is null or empty');
+        return "";
+      }
       
-      const date = new Date(dateValue);
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      const year = date.getFullYear();
+      // Parse string directly: YYYY-MM-DD
+      // This avoids JavaScript Date object's timezone conversion
+      const parts = dateValue.split('-');
       
-      return `${month}-${day}-${year}`;
-
+      if (parts.length !== 3) {
+        console.error('formatDate: Invalid date format. Expected YYYY-MM-DD, received:', dateValue);
+        return "";
+      }
+      
+      const year = parts[0];           // YYYY
+      const month = parts[1];          // MM
+      const day = parts[2];            // DD
+      
+      // Validate parts are valid numbers
+      if (isNaN(year) || isNaN(month) || isNaN(day)) {
+        console.error('formatDate: Date parts contain non-numeric values:', { year, month, day });
+        return "";
+      }
+      
+      // Ensure month and day are zero-padded
+      const formattedMonth = String(month).padStart(2, '0');
+      const formattedDay = String(day).padStart(2, '0');
+      
+      // Output format: MM-DD-YYYY (e.g., 05-05-2025)
+      const result = `${formattedMonth}-${formattedDay}-${year}`;
+      
+      console.log(`formatDate conversion: ${dateValue} → ${result}`);
+      
+      return result;
     }
   }
 
