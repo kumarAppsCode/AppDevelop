@@ -31,8 +31,8 @@ define([
 
       $variables.reProcessObj_lv.FromDate = lvFromDate;
       $variables.reProcessObj_lv.ToDate = lvToDate;
-      $variables.reProcessObj_lv.PeriodName = $variables.reProcessObj.PeriodName;
-      $variables.reProcessObj_lv.LegalEntity = $variables.reProcessObj.LegalEntity;
+      $variables.reProcessObj_lv.PeriodName = $variables.reProcessObj.PeriodName || "";
+      $variables.reProcessObj_lv.LegalEntity = $variables.reProcessObj.LegalEntity || "";
 
 
       if ($variables.intForm === 'valid') {
