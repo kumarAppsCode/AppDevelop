@@ -1,0 +1,679 @@
+--------------------------------------------------------
+--  DDL for Package Body ALTERA_SHIPMENT_DOC_HEADER_PKG
+--------------------------------------------------------
+
+  CREATE OR REPLACE EDITIONABLE PACKAGE BODY "ALTERA_SHIPMENT_DOC_HEADER_PKG" IS
+
+   /**============================================================================================
+                                 Development and Maintenance History
+ ===========================================================================================
+   Date            Version               Developed By                     Description                    
+ ===========================================================================================
+   31-AUG-2025     1.0                   Application Development Team     Initial Version                
+ ===========================================================================================
+ ==========================================================================================**/
+
+    -- JSON Processing Cursor for input data parsing
+    CURSOR cur_data(p_data BLOB) IS
+        SELECT 
+            alt_shipment_doc_id,
+            originator_name,
+            originator_contact_number,
+            oris_ref_number,
+            legal_entity,
+            warehouse,
+            attention_name,
+            wwid,
+            attn_contact_number,
+            ship_to_addr_name,
+            ship_to_addr1,
+            ship_to_addr2,
+            ship_to_city,
+            ship_to_state,
+            ship_to_postal_code,
+            ship_to_region,
+            ship_to_country,
+            bill_to_addr_name,
+            bill_to_addr1,
+            bill_to_addr2,
+            bill_to_city,
+            bill_to_state,
+            bill_to_postal_code,
+            bill_to_region,
+            bill_to_country,
+            delivery_number,
+            delivery_creation_date,
+            delivery_status,
+            po_number,
+            payment_terms,
+            currency,
+            net_weight,
+            gross_weight,
+            incoterms,
+            special_instructions,
+            attribute1,
+            attribute2,
+            attribute3,
+            attribute4,
+            attribute5,
+            attribute6,
+            attribute7,
+            attribute8,
+            attribute9,
+            attribute10,
+            object_version_num,
+            created_by,
+            creation_date,
+            last_updated_by,
+            last_update_date,
+            last_update_login,
+            status,
+            integration_status,
+            integration_error_message,
+            saas_transaction_id,
+            ship_from_addr_name,  
+            ship_from_addr1,      
+            ship_from_addr2,      
+            ship_from_city,       
+            ship_from_state,      
+            ship_from_postal_code,
+            ship_from_region,     
+            ship_from_country,
+            same_ship_address,
+            organization_id,
+            user_id
+        FROM JSON_TABLE(p_data FORMAT JSON, '$'
+            COLUMNS (
+                alt_shipment_doc_id         NUMBER          PATH '$.alt_shipment_doc_id',
+                originator_name             VARCHAR2(240)   PATH '$.originator_name',
+                originator_contact_number   VARCHAR2(20)    PATH '$.originator_contact_number',
+                oris_ref_number             VARCHAR2(100)   PATH '$.oris_ref_number',
+                legal_entity                VARCHAR2(120)   PATH '$.legal_entity',
+                warehouse                   VARCHAR2(240)   PATH '$.warehouse',
+                attention_name              VARCHAR2(120)   PATH '$.attention_name',
+                wwid                        NUMBER          PATH '$.wwid',
+                attn_contact_number         VARCHAR2(20)    PATH '$.attn_contact_number',
+                ship_to_addr_name           VARCHAR2(120)   PATH '$.ship_to_addr_name',
+                ship_to_addr1               VARCHAR2(240)   PATH '$.ship_to_addr1',
+                ship_to_addr2               VARCHAR2(240)   PATH '$.ship_to_addr2',
+                ship_to_city                VARCHAR2(240)   PATH '$.ship_to_city',
+                ship_to_state               VARCHAR2(60)    PATH '$.ship_to_state',
+                ship_to_postal_code         VARCHAR2(20)    PATH '$.ship_to_postal_code',
+                ship_to_region              VARCHAR2(100)   PATH '$.ship_to_region',
+                ship_to_country             VARCHAR2(100)   PATH '$.ship_to_country',
+                bill_to_addr_name           VARCHAR2(120)   PATH '$.bill_to_addr_name',
+                bill_to_addr1               VARCHAR2(240)   PATH '$.bill_to_addr1',
+                bill_to_addr2               VARCHAR2(240)   PATH '$.bill_to_addr2',
+                bill_to_city                VARCHAR2(240)   PATH '$.bill_to_city',
+                bill_to_state               VARCHAR2(60)    PATH '$.bill_to_state',
+                bill_to_postal_code         VARCHAR2(20)    PATH '$.bill_to_postal_code',
+                bill_to_region              VARCHAR2(100)   PATH '$.bill_to_region',
+                bill_to_country             VARCHAR2(100)   PATH '$.bill_to_country',
+                delivery_number             NUMBER          PATH '$.delivery_number',
+                delivery_creation_date      DATE            PATH '$.delivery_creation_date',
+                delivery_status             VARCHAR2(20)    PATH '$.delivery_status',
+                po_number                   VARCHAR2(50)    PATH '$.po_number',
+                payment_terms               VARCHAR2(50)    PATH '$.payment_terms',
+                currency                    VARCHAR2(10)    PATH '$.currency',
+                net_weight                  VARCHAR2(50)    PATH '$.net_weight',
+                gross_weight                VARCHAR2(50)    PATH '$.gross_weight',
+                incoterms                   VARCHAR2(50)    PATH '$.incoterms',
+                special_instructions        VARCHAR2(240)   PATH '$.special_instructions',
+                attribute1                  VARCHAR2(240)   PATH '$.attribute1',
+                attribute2                  VARCHAR2(240)   PATH '$.attribute2',
+                attribute3                  VARCHAR2(240)   PATH '$.attribute3',
+                attribute4                  VARCHAR2(240)   PATH '$.attribute4',
+                attribute5                  VARCHAR2(240)   PATH '$.attribute5',
+                attribute6                  VARCHAR2(240)   PATH '$.attribute6',
+                attribute7                  VARCHAR2(240)   PATH '$.attribute7',
+                attribute8                  VARCHAR2(240)   PATH '$.attribute8',
+                attribute9                  VARCHAR2(240)   PATH '$.attribute9',
+                attribute10                 VARCHAR2(240)   PATH '$.attribute10',
+                object_version_num          NUMBER          PATH '$.object_version_num',
+                created_by                  VARCHAR2(64)    PATH '$.created_by',
+                creation_date               DATE            PATH '$.creation_date',
+                last_updated_by             VARCHAR2(64)    PATH '$.last_updated_by',
+                last_update_date            DATE            PATH '$.last_update_date',
+                last_update_login           VARCHAR2(32)    PATH '$.last_update_login',
+                status                      VARCHAR2(20)    PATH '$.status',
+                integration_status          VARCHAR2(50)    PATH '$.integration_status',
+                integration_error_message   VARCHAR2(4000)  PATH '$.integration_error_message',
+                saas_transaction_id         VARCHAR2(100)   PATH '$.saas_transaction_id',
+                ship_from_addr_name             VARCHAR2(240)   PATH '$.ship_from_addr_name',
+                ship_from_addr1                 VARCHAR2(240)   PATH '$.ship_from_addr1',
+                ship_from_addr2                 VARCHAR2(240)   PATH '$.ship_from_addr2',
+                ship_from_city                  VARCHAR2(240)   PATH '$.ship_from_city',
+                ship_from_state                 VARCHAR2(240)   PATH '$.ship_from_state',
+                ship_from_postal_code           VARCHAR2(240)   PATH '$.ship_from_postal_code',
+                ship_from_region                VARCHAR2(240)   PATH '$.ship_from_region',
+                ship_from_country               VARCHAR2(240)   PATH '$.ship_from_country',
+                same_ship_address               VARCHAR2(240)   PATH '$.same_ship_address',
+                organization_id                 number PATH '$.organization_id',
+                user_id                         number PATH '$.user_id'
+            )
+        );
+
+    -- Global variables for data handling and responses
+    rec_data cur_data%ROWTYPE;
+    lv_err_code VARCHAR2(1);
+    lv_err_message VARCHAR2(4000);
+    lv_primarykey NUMBER;
+    lv_object_version_num NUMBER;
+
+    /*
+     * Main process dispatcher - routes to appropriate CRUD operation
+     */
+    PROCEDURE process_data (
+        p_method        IN VARCHAR2,
+        p_primarykey    IN OUT NUMBER,
+        p_data          IN BLOB,
+        p_err_code      OUT VARCHAR2,
+        p_err_message   OUT VARCHAR2
+    ) IS
+        lv_input_primarykey NUMBER;
+    BEGIN
+        lv_input_primarykey := p_primarykey;
+        -- Route to appropriate operation based on HTTP method
+        IF p_method = 'POST' THEN
+            post_data(lv_input_primarykey, p_data, p_err_code, p_err_message);
+            p_primarykey := lv_input_primarykey;
+        ELSIF p_method = 'PUT' THEN
+            put_data(lv_input_primarykey, p_data, p_err_code, p_err_message);
+            p_primarykey := lv_input_primarykey;
+        ELSIF p_method = 'DELETE' THEN
+            delete_data(lv_input_primarykey, p_data, p_err_code, p_err_message);
+            p_primarykey := lv_input_primarykey;
+        ELSE
+            p_primarykey := 0;
+            p_err_code := 'E';
+            p_err_message := 'Invalid method. Supported methods: POST, PUT, DELETE';
+        END IF;
+
+    EXCEPTION
+        WHEN OTHERS THEN
+            p_err_code := 'E';
+            p_err_message := 'Unexpected error in process_data: ' || SQLERRM;
+    END process_data;
+
+    /*
+     * Insert new shipment document header record with sequence-generated ID
+     */
+    PROCEDURE post_data (
+        p_primarykey    IN OUT NUMBER,
+        p_data          IN BLOB,
+        p_err_code      OUT VARCHAR2,
+        p_err_message   OUT VARCHAR2
+    ) IS
+        lv_seq_id NUMBER := ALTERA_SHIPMENT_DOC_SEQ.NEXTVAL;
+        lv_delivery_creation_date DATE;
+        lv_total_count number;
+    BEGIN 
+        -- Parse JSON input data
+        OPEN cur_data(p_data); 
+        FETCH cur_data INTO rec_data; 
+        CLOSE cur_data;
+
+        begin 
+            select 
+            count(*) 
+            into lv_total_count
+            from ALTERA_SHIPMENT_DOC_HEADER;
+        exception when others then 
+            lv_total_count:=0;
+        end;
+
+        -- Set delivery creation date if not provided
+        lv_delivery_creation_date := NVL(rec_data.delivery_creation_date, SYSDATE);
+
+        -- Insert new shipment document header record
+        INSERT INTO ALTERA_SHIPMENT_DOC_HEADER (
+            alt_shipment_doc_id,
+            originator_name,
+            originator_contact_number,
+            oris_ref_number,
+            legal_entity,
+            warehouse,
+            attention_name,
+            wwid,
+            attn_contact_number,
+            ship_to_addr_name,
+            ship_to_addr1,
+            ship_to_addr2,
+            ship_to_city,
+            ship_to_state,
+            ship_to_postal_code,
+            ship_to_region,
+            ship_to_country,
+            bill_to_addr_name,
+            bill_to_addr1,
+            bill_to_addr2,
+            bill_to_city,
+            bill_to_state,
+            bill_to_postal_code,
+            bill_to_region,
+            bill_to_country,
+            delivery_number,
+            delivery_creation_date,
+            delivery_status,
+            po_number,
+            payment_terms,
+            currency,
+            net_weight,
+            gross_weight,
+            incoterms,
+            special_instructions,
+            attribute1,
+            attribute2,
+            attribute3,
+            attribute4,
+            attribute5,
+            attribute6,
+            attribute7,
+            attribute8,
+            attribute9,
+            attribute10,
+            object_version_num,
+            created_by,
+            creation_date,
+            last_updated_by,
+            last_update_date,
+            last_update_login,
+            status,
+            ship_from_addr_name,  
+            ship_from_addr1,      
+            ship_from_addr2,      
+            ship_from_city,       
+            ship_from_state,      
+            ship_from_postal_code,
+            ship_from_region,     
+            ship_from_country,
+            same_ship_address,
+            organization_id,
+            user_id
+        ) VALUES (
+            lv_seq_id,
+            rec_data.originator_name,
+            rec_data.originator_contact_number,
+--          rec_data.oris_ref_number,
+--            (lv_total_count+1),
+            lv_seq_id,
+            rec_data.legal_entity,
+            rec_data.warehouse,
+            rec_data.attention_name,
+            rec_data.wwid,
+            rec_data.attn_contact_number,
+            rec_data.ship_to_addr_name,
+            rec_data.ship_to_addr1,
+            rec_data.ship_to_addr2,
+            rec_data.ship_to_city,
+            rec_data.ship_to_state,
+            rec_data.ship_to_postal_code,
+            rec_data.ship_to_region,
+            rec_data.ship_to_country,
+            rec_data.bill_to_addr_name,
+            rec_data.bill_to_addr1,
+            rec_data.bill_to_addr2,
+            rec_data.bill_to_city,
+            rec_data.bill_to_state,
+            rec_data.bill_to_postal_code,
+            rec_data.bill_to_region,
+            rec_data.bill_to_country,
+            rec_data.delivery_number,
+            lv_delivery_creation_date,
+            NVL(rec_data.delivery_status, 'DRAFT'),
+            rec_data.po_number,
+            rec_data.payment_terms,
+            rec_data.currency,
+            rec_data.net_weight,
+            rec_data.gross_weight,
+            rec_data.incoterms,
+            rec_data.special_instructions,
+            rec_data.attribute1,
+            rec_data.attribute2,
+            rec_data.attribute3,
+            rec_data.attribute4,
+            rec_data.attribute5,
+            rec_data.attribute6,
+            rec_data.attribute7,
+            rec_data.attribute8,
+            rec_data.attribute9,
+            rec_data.attribute10,
+            NVL(rec_data.object_version_num, 1),
+            rec_data.created_by,
+            SYSDATE,
+            rec_data.last_updated_by,
+            SYSDATE,
+            rec_data.last_update_login,
+            'Draft',
+            rec_data.ship_from_addr_name,  
+            rec_data.ship_from_addr1,      
+            rec_data.ship_from_addr2,      
+            rec_data.ship_from_city,       
+            rec_data.ship_from_state,      
+            rec_data.ship_from_postal_code,
+            rec_data.ship_from_region,     
+            rec_data.ship_from_country,
+            rec_data.same_ship_address,
+            rec_data.organization_id,
+            rec_data.user_id
+        );
+
+        -- Set return values
+        lv_primarykey := lv_seq_id;
+
+        -- Commit transaction
+        COMMIT;
+
+        -- Return success response
+        p_primarykey:=lv_seq_id;
+        p_err_code := 'S';
+        p_err_message := 'Shipment document header created successfully - ID: ' || lv_seq_id;
+
+    EXCEPTION
+        WHEN DUP_VAL_ON_INDEX THEN
+            ROLLBACK;
+            p_err_code := 'E';
+            p_err_message := 'Duplicate record found. ORIS reference number or delivery number may already exist.';
+        WHEN OTHERS THEN
+            ROLLBACK;
+            p_err_code := 'E';
+            IF SQLCODE = -1 THEN 
+                p_err_message := 'Duplicate key constraint violation';
+            ELSE
+                p_err_message := 'Insert failed - ' || SQLCODE || ': ' || SQLERRM;
+            END IF;
+    END post_data;
+
+    /*
+     * Update existing shipment document header record with optimistic locking
+     */
+    PROCEDURE put_data (
+        p_primarykey    IN OUT NUMBER,
+        p_data          IN BLOB,
+        p_err_code      OUT VARCHAR2,
+        p_err_message   OUT VARCHAR2
+    ) IS
+    BEGIN 
+        -- Parse JSON input data
+        OPEN cur_data(p_data); 
+        FETCH cur_data INTO rec_data; 
+        CLOSE cur_data;
+
+        -- Get current version number for optimistic locking
+        BEGIN
+            SELECT object_version_num 
+            INTO lv_object_version_num 
+            FROM ALTERA_SHIPMENT_DOC_HEADER
+            WHERE alt_shipment_doc_id = p_primarykey;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                p_err_code := 'E';
+                p_err_message := 'Record not found with ID: ' || p_primarykey;
+                RETURN;
+        END;
+
+        -- Check version for concurrent update protection
+--        IF lv_object_version_num = NVL(rec_data.object_version_num, lv_object_version_num) THEN
+            -- Update record with incremented version
+            UPDATE ALTERA_SHIPMENT_DOC_HEADER 
+            SET
+                originator_name             = rec_data.originator_name,
+                originator_contact_number   = rec_data.originator_contact_number,
+                legal_entity                = rec_data.legal_entity,
+                warehouse                   = rec_data.warehouse,
+                attention_name              = rec_data.attention_name,
+                wwid                        = rec_data.wwid,
+                attn_contact_number         = rec_data.attn_contact_number,
+                ship_to_addr_name           = rec_data.ship_to_addr_name,
+                ship_to_addr1               = rec_data.ship_to_addr1,
+                ship_to_addr2               = rec_data.ship_to_addr2,
+                ship_to_city                = rec_data.ship_to_city,
+                ship_to_state               = rec_data.ship_to_state,
+                ship_to_postal_code         = rec_data.ship_to_postal_code,
+                ship_to_region              = rec_data.ship_to_region,
+                ship_to_country             = rec_data.ship_to_country,
+                bill_to_addr_name           = rec_data.bill_to_addr_name,
+                bill_to_addr1               = rec_data.bill_to_addr1,
+                bill_to_addr2               = rec_data.bill_to_addr2,
+                bill_to_city                = rec_data.bill_to_city,
+                bill_to_state               = rec_data.bill_to_state,
+                bill_to_postal_code         = rec_data.bill_to_postal_code,
+                bill_to_region              = rec_data.bill_to_region,
+                bill_to_country             = rec_data.bill_to_country,
+                delivery_number             = rec_data.delivery_number,
+                delivery_creation_date      = NVL(rec_data.delivery_creation_date, delivery_creation_date),
+                delivery_status             = rec_data.delivery_status,
+                po_number                   = rec_data.po_number,
+                payment_terms               = rec_data.payment_terms,
+                currency                    = rec_data.currency,
+                net_weight                  = rec_data.net_weight,
+                gross_weight                = rec_data.gross_weight,
+                incoterms                   = rec_data.incoterms,
+                special_instructions        = rec_data.special_instructions,
+                attribute1                  = rec_data.attribute1,
+                attribute2                  = rec_data.attribute2,
+                attribute3                  = rec_data.attribute3,
+                attribute4                  = rec_data.attribute4,
+                attribute5                  = rec_data.attribute5,
+                attribute6                  = rec_data.attribute6,
+                attribute7                  = rec_data.attribute7,
+                attribute8                  = rec_data.attribute8,
+                attribute9                  = rec_data.attribute9,
+                attribute10                 = rec_data.attribute10,
+                object_version_num          = lv_object_version_num + 1,
+                last_updated_by             = rec_data.last_updated_by,
+                last_update_date            = SYSDATE,
+                last_update_login           = rec_data.last_update_login,
+                ship_from_addr_name         =rec_data.ship_from_addr_name,  
+                ship_from_addr1             =rec_data.ship_from_addr1,      
+                ship_from_addr2             =rec_data.ship_from_addr2,      
+                ship_from_city              =rec_data.ship_from_city,       
+                ship_from_state             =rec_data.ship_from_state,      
+                ship_from_postal_code       =rec_data.ship_from_postal_code,
+                ship_from_region            =rec_data.ship_from_region,     
+                ship_from_country           =rec_data.ship_from_country,
+                same_ship_address           =rec_data.same_ship_address,
+                organization_id             =rec_data.organization_id,
+                user_id                     =rec_data.user_id
+            WHERE alt_shipment_doc_id = p_primarykey;
+
+            -- Check if record was actually updated
+--            IF SQL%ROWCOUNT = 0 THEN
+--                p_err_code := 'E';
+--                p_err_message := 'No records updated. Record may have been deleted.';
+--                RETURN;
+--            END IF;
+
+            -- Commit transaction
+            COMMIT;
+            -- Return success response
+            p_primarykey:=p_primarykey;
+            p_err_code := 'S';
+            p_err_message := 'Shipment document header updated successfully';
+
+--        ELSE
+--            -- Version mismatch - record was modified by another user
+--            p_err_code := 'E';
+--            p_err_message := 'Record has been modified by another user. Please refresh and try again.';
+--        END IF;
+
+    EXCEPTION
+        WHEN OTHERS THEN
+            ROLLBACK;
+            p_err_code := 'E';
+            IF SQLCODE = -1 THEN 
+                p_err_message := 'Update failed due to constraint violation';
+            ELSE
+                p_err_message := 'Update failed - ' || SQLCODE || ': ' || SQLERRM;
+            END IF;
+    END put_data;
+
+    /*
+     * Delete shipment document header record
+     */
+    PROCEDURE delete_data (
+        p_primarykey    IN OUT NUMBER,
+        p_data          IN BLOB,
+        p_err_code      OUT VARCHAR2,
+        p_err_message   OUT VARCHAR2
+    ) IS
+        lv_record_count NUMBER;
+    BEGIN 
+        -- Check if record exists before attempting delete
+--        BEGIN
+--            SELECT COUNT(*)
+--            INTO lv_record_count
+--            FROM ALTERA_SHIPMENT_DOC_HEADER
+--            WHERE alt_shipment_doc_id = p_primarykey;
+--        EXCEPTION
+--            WHEN OTHERS THEN
+--                lv_record_count := 0;
+--        END;
+--
+--        IF lv_record_count = 0 THEN
+--            p_err_code := 'E';
+--            p_err_message := 'Record not found with ID: ' || p_primarykey;
+--            RETURN;
+--        END IF;
+        delete from ALTERA_SHIPMENT_DOC_LINE
+        where ALT_SHIPMENT_DOC_ID=p_primarykey;
+        -- Perform delete operation
+        delete from ALTERA_SHIPMENT_DOC_HEADER 
+        where ALT_SHIPMENT_DOC_ID=p_primarykey;
+        -- Commit transaction
+        COMMIT;
+
+        -- Return success response
+        p_err_code := 'S';
+        p_err_message := 'Shipment document header deleted successfully';
+
+    EXCEPTION
+        WHEN OTHERS THEN
+            ROLLBACK;
+            p_err_code := 'E';
+            IF SQLCODE = -2292 THEN
+                p_err_message := 'Cannot delete record due to dependent child records';
+            ELSE
+                p_err_message := 'Delete failed - ' || SQLCODE || ': ' || SQLERRM;
+            END IF;
+    END delete_data;
+
+    /*
+     * Retrieve shipment document header records with pagination and filtering
+     * Optimized for performance with proper indexing support
+     */
+    PROCEDURE get_data (
+        in_limit                IN NUMBER,
+        in_offset               IN VARCHAR2,
+        p_alt_shipment_doc_id   IN NUMBER DEFAULT NULL,
+        p_oris_ref_number       IN VARCHAR2 DEFAULT NULL,
+        p_po_number             IN VARCHAR2 DEFAULT NULL,
+        p_delivery_number       IN NUMBER DEFAULT NULL,
+        p_status                IN VARCHAR2 DEFAULT NULL,
+        out_status              OUT VARCHAR2,
+        out_description         OUT VARCHAR2,
+        out_has_next            OUT VARCHAR2,
+        out_total_count         OUT NUMBER,
+        out_count               OUT NUMBER,
+        p_output                OUT SYS_REFCURSOR
+    ) IS
+        lv_where VARCHAR2(4000) := ' WHERE 1=1';
+        lv_sql CLOB;
+        lv_count_sql VARCHAR2(1000);
+        lv_total_count NUMBER := 0;
+        lv_current_count NUMBER := 0;
+        lv_offset_num NUMBER := TO_NUMBER(NVL(in_offset, '0'));
+        lv_error_message VARCHAR2(2000) := NULL;
+        lv_status CHAR(1) := 'N';
+        lv_sql_err VARCHAR2(4000) := 'SELECT 1 FROM dual WHERE 1=2';
+
+    BEGIN
+
+        -- Build dynamic WHERE clause based on filter parameters
+        IF p_alt_shipment_doc_id IS NOT NULL AND p_alt_shipment_doc_id <> 0 THEN
+            lv_where := lv_where || ' AND alt_shipment_doc_id = ' || p_alt_shipment_doc_id;
+        END IF;
+
+        IF p_oris_ref_number IS NOT NULL AND TRIM(p_oris_ref_number) IS NOT NULL THEN
+            lv_where := lv_where || ' AND UPPER(oris_ref_number) LIKE ''%' || UPPER(TRIM(p_oris_ref_number)) || '%''';
+        END IF;
+
+        IF p_po_number IS NOT NULL AND TRIM(p_po_number) IS NOT NULL THEN
+            lv_where := lv_where || ' AND UPPER(po_number) LIKE ''%' || UPPER(TRIM(p_po_number)) || '%''';
+        END IF;
+
+        IF p_delivery_number IS NOT NULL AND p_delivery_number <> 0 THEN
+--          lv_where := lv_where || ' AND delivery_number = ' || p_delivery_number;
+            lv_where := lv_where || ' AND order_number = ' || p_delivery_number;
+        END IF;
+
+        IF p_status IS NOT NULL AND TRIM(p_status) IS NOT NULL THEN
+            lv_where := lv_where || ' AND UPPER(status) = ''' || UPPER(TRIM(p_status)) || '''';
+        END IF;
+
+        -- Get total count for pagination
+        BEGIN
+            lv_count_sql := 'SELECT COUNT(*) FROM ALTERA_SHIPMENT_DOC_HEADER ' || lv_where;
+            EXECUTE IMMEDIATE lv_count_sql INTO lv_total_count;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                lv_total_count := 0;
+                lv_status := 'Y';
+                lv_error_message := 'No records found matching the criteria';
+            WHEN OTHERS THEN
+                lv_total_count := 0;
+                lv_status := 'Y';
+                lv_error_message := 'Error getting total count: ' || SQLERRM;
+        END;
+
+        -- Calculate current page count
+        BEGIN
+            lv_current_count := LEAST(in_limit, GREATEST(0, lv_total_count - lv_offset_num));
+        EXCEPTION
+            WHEN OTHERS THEN
+                lv_current_count := 0;
+                lv_status := 'Y';
+                lv_error_message := 'Error calculating page count: ' || SQLERRM;
+        END;
+
+        -- Determine if there are more pages
+        out_has_next := CASE 
+            WHEN (lv_offset_num + lv_current_count) < lv_total_count THEN 'Y' 
+            ELSE 'N' 
+        END;
+
+        -- Build main query with pagination
+        IF lv_total_count > 0 AND lv_status = 'N' THEN
+            lv_sql := 'SELECT * FROM ALTERA_SHIPMENT_DOC_HEADER ' || lv_where ||
+                     ' ORDER BY alt_shipment_doc_id DESC' ||
+                     ' OFFSET ' || lv_offset_num || 
+                     ' ROWS FETCH NEXT ' || in_limit || ' ROWS ONLY';
+        END IF;
+
+        -- Set output parameters and open cursor
+        IF lv_status = 'N' THEN
+            out_status := 'SUCCESS';
+            out_description := 'Shipment document headers retrieved successfully';
+            out_total_count := lv_total_count;
+            out_count := lv_current_count;
+            OPEN p_output FOR lv_sql;
+        ELSE
+            out_status := 'ERROR';
+            out_description := NVL(lv_error_message, 'Unknown error occurred');
+            out_total_count := 0;
+            out_count := 0;
+            out_has_next := 'N';
+            OPEN p_output FOR lv_sql_err;
+        END IF;
+
+    EXCEPTION
+        WHEN OTHERS THEN
+            out_status := 'ERROR';
+            out_description := 'Unexpected error in get_data: ' || SQLERRM;
+            out_total_count := 0;
+            out_count := 0;
+            out_has_next := 'N';
+            OPEN p_output FOR lv_sql_err;
+    END get_data;
+
+END altera_shipment_doc_header_pkg;
