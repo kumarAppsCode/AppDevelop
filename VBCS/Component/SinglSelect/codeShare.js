@@ -1,7 +1,7 @@
 CREATE OR REPLACE PACKAGE RHX_NAVAN_GL_FBDI_UPLOAD_PKG IS
 
    /**============================================================================================
-                                 Development and Maintenance HistoryS
+                                 Development and Maintenance History
      ===========================================================================================
    Date            Version               Developed By                     Description                    
  ===========================================================================================
