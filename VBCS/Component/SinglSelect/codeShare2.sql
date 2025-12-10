@@ -11,3 +11,9 @@
 <oj-popup id="popDialog" tail="simple" position.at.vertical="top" modality="modal">
  <oj-highlight-text style="color: red;" text="[[$application.translations.appBundle.msg]]" match-text="Highlight"></oj-highlight-text>
 </oj-popup>
+
+
+      const popDialogOpen = await Actions.callComponentMethod(context, {
+        selector: '#popDialog',
+        method: 'open',
+      });
