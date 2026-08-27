@@ -1,0 +1,23 @@
+Dear Team,
+Good Day..!
+While building the custom validation rule (customValidate) on the Requisition Line page (create-edit-req-line), we need to apply business logic based on the combination of the following fields:
+•	Line Type
+•	Destination Type
+•	Inventory Organization
+•	Location
+We have identified the following behavior:
+•	Line Type: The system is returning the LOV value as an ID. The Line Type code/name is returning as undefined.
+•	Destination Type: The LOV value is working as expected.
+•	Location: The system is returning the LOV value as an ID. The Location code/name is returning as undefined.
+•	Inventory Organization: We are able to retrieve the field value correctly.
+
+For Line Type and Location, please refer to the attached screenshots. The system is returning only the ID, while the corresponding code/name is returning as undefined.
+Because of this, we are unable to implement dynamic conditions such as startsWith or other business logic based on the actual code/name.
+ 
+
+ 
+ 
+
+We also cannot hardcode the IDs in the validation logic because the IDs may change between UAT and Production, and potentially during future deployments. This would require us to manually monitor and update the IDs each time, which is not a reliable approach.
+
+
