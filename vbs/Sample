@@ -1,0 +1,180 @@
+define([], function () {
+
+  'use strict';
+
+  class PageModule {
+
+    connected() {
+      this.startObserver();
+    }
+
+    startObserver() {
+
+      let debounceTimer;
+
+      // ============================================================
+      // Find a button by its visible text
+      // ============================================================
+      const findButtonByText = (text) => {
+
+        const buttons = document.querySelectorAll("button");
+
+        for (let btn of buttons) {
+
+          if ((btn.innerText || "").trim() === text) {
+            return btn;
+          }
+        }
+
+        return null;
+      };
+
+
+      // ============================================================
+      // Insert red message + button above the toolbar
+      // (Add / View Plan Details row) — safe, unclipped area
+      // ============================================================
+      const insertMessageAndButton = () => {
+
+        if (document.getElementById("perfPageBanner")) return;
+
+        const viewPlanBtn = findButtonByText("View Plan Details");
+        if (!viewPlanBtn) return;
+
+        // toolbar row = the row containing Add / View Plan Details
+        const toolbarRow = viewPlanBtn.closest("div").parentElement;
+        if (!toolbarRow || !toolbarRow.parentNode) return;
+
+        const banner = document.createElement("div");
+        banner.id = "perfPageBanner";
+
+        banner.style.cssText = `
+          display: flex !important;
+          align-items: center !important;
+          gap: 12px !important;
+          margin: 10px 0 !important;
+          min-height: 30px !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+          position: relative !important;
+          z-index: 9999 !important;
+        `;
+
+        banner.innerHTML = `
+          <span id="welcomeMsg" style="color:red !important;font-weight:bold !important;font-size:14px !important;">
+            Welcome to Performance Page
+          </span>
+          <button id="perfActionBtn"
+            style="padding:6px 14px;
+                   border:1px solid #C74634;
+                   background:#fff;
+                   color:#C74634;
+                   border-radius:4px;
+                   font-weight:600;
+                   cursor:pointer;">
+            Click Me
+          </button>
+        `;
+
+        banner.querySelector("#perfActionBtn").addEventListener("click", () => {
+          alert("Button clicked on Performance Page");
+        });
+
+        toolbarRow.parentNode.insertBefore(banner, toolbarRow);
+
+      };
+
+
+      // ============================================================
+      // Mutation Observer
+      // ============================================================
+      const observer =
+        new MutationObserver(() => {
+
+          clearTimeout(debounceTimer);
+
+          debounceTimer =
+            setTimeout(() => {
+
+              insertMessageAndButton();
+
+            }, 300);
+
+        });
+
+
+      observer.observe(document.body, {
+
+        childList: true,
+
+        subtree: true
+
+      });
+
+
+      // ============================================================
+      // Initial execution (retry a few times in case page loads slow)
+      // ============================================================
+      [500, 1000, 2000, 3000].forEach((delay) => {
+
+        setTimeout(() => {
+
+          insertMessageAndButton();
+
+        }, delay);
+
+      });
+
+
+      // ============================================================
+      // Resize handling
+      // ============================================================
+      window.addEventListener("resize", () => {
+
+        setTimeout(() => {
+
+          insertMessageAndButton();
+
+        }, 300);
+
+      });
+
+    }
+
+  }
+
+  return PageModule;
+
+});
+
+              
+
+define([
+  'vb/action/actionChain',
+  'vb/action/actions',
+  'vb/action/actionUtils',
+], (
+  ActionChain,
+  Actions,
+  ActionUtils
+) => {
+  'use strict';
+
+  class vbEnterListener extends ActionChain {
+
+    /**
+     * @param {Object} context
+     */
+    async run(context) {
+      const { $page, $flow, $application, $base, $extension, $constants, $variables, $functions } = context;
+
+
+      // await $functions.hideDevTab();
+      
+
+      await $functions.connected();
+    }
+  }
+
+  return vbEnterListener;
+});
