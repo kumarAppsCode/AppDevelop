@@ -1,0 +1,666 @@
+/* eslint-disable dot-notation */
+define([], () => {
+  'use strict';
+  // ============================================================
+  // PEG Consumable PR/PO Restriction - ADO 78594
+  //
+  // SCOPE:
+  //   Delivery and Billing Details ... ALL rules enforced
+  //   New Requisition Line .......... NEVER blocks (always false)
+  //
+  // RULES:
+  //   1. Line type class drives destination type, per DEST_FOR_CLASS below.
+  //      (CONSUMABLE -> EXPENSE, INVENTORY -> INVENTORY)
+  //      A line type mapped to ANY is shared by both flows: Rule 1 is
+  //      not enforced and the class is taken from the destination type.
+  //   2. Deliver-to location must be a site that accepts that class.
+  //      A site may list more than one class, comma separated.
+  //   3. Deliver-to location's InventoryOrganizationName (HCM locationsLov)
+  //      must equal the <ORG> configured for that site in the lookup
+  //
+  // Lookup PEG_PO_RULES:
+  //   LookupCode  = LineTypeId or LocationId
+  //   Meaning     = display name (for SITE rows: the LocationName)
+  //   Description = LINETYPE|<CLASS>  or  SITE|<ORG>|<CLASS>[,<CLASS>]
+  //   <CLASS>     = CONSUMABLE | INVENTORY  (LINETYPE rows also accept ANY)
+  //   <ORG>       = org code/name, optionally <ORG>#<OrganizationId>
+  //   e.g. 300000007020231 | POLP-HCH-1 | SITE|POLP|CONSUMABLE
+  //        300000019057025 | POLP-SWW-1 | SITE|POLP|CONSUMABLE,INVENTORY
+  //        300000012345678 | POC-STJ-1  | SITE|POC#300000004512345|CONSUMABLE
+  //        1               | Goods      | LINETYPE|ANY
+  //
+  // Some locations return InventoryOrganizationName = null from
+  // locationsLov while still carrying InventoryOrganizationId (seen on
+  // the POC sites). Rule 3 therefore matches on the id as well: either
+  // the #<OrganizationId> configured above, or the org code/name
+  // resolved from that id via inventoryOrganizations.
+  //
+  // All REST calls use the user's signed-in browser session.
+  // No Authorization header / credentials are sent from this code.
+  // ============================================================
+  const LOOKUP_TYPE = 'PEG_PO_RULES';
+  const LOOKUP_RESOURCE = 'standardLookupsLOV';
+  const FSCM_BASE = '/fscmRestApi/resources/11.13.18.05/';
+  const HCM_BASE = '/hcmRestApi/resources/11.13.18.05/';
+
+  // Location missing from lookup: false = allow, true = block.
+  const BLOCK_UNMAPPED_SITE = true;
+
+  // If LineTypeId is NOT available in the Delivery page context:
+  //   false = skip entirely, true = infer class from DestinationTypeCode
+  const INFER_CLASS_FROM_DEST = true;
+
+  // Marker used in LINETYPE rows for a line type shared by both flows.
+  const SHARED_CLASS = 'ANY';
+  const VALID_CLASSES = ['CONSUMABLE', 'INVENTORY'];
+
+  // A SITE row listing more than one class (e.g. POLP-SWW-1 mapped
+  // SITE|POLP|CONSUMABLE,INVENTORY) is a mixed-use site. Per the
+  // ADO 78594 matrix a mixed-use site is not orderable at all:
+  //   'BLOCK' = every line to that site fails, whatever its class
+  //   'ALLOW' = the site accepts each class it lists
+  const MULTI_CLASS_SITE = 'BLOCK';
+
+  // ----- Rule 1: the destination type each line-type class requires -----
+  // Anything other than the value below is blocked for that class.
+  // A class with no entry here is not checked by Rule 1 at all.
+  // Confirmed by the ADO 78594 validation matrix:
+  //   Goods - Consumables passes only with EXPENSE
+  //   Goods - Inventory   passes only with INVENTORY
+  const DEST_FOR_CLASS = {
+    CONSUMABLE: 'EXPENSE',
+    INVENTORY: 'INVENTORY'
+  };
+
+  // ----- Rule 3 settings (inventory organization check) -----
+  const ENFORCE_ORG_CHECK = true;
+  // How to query locationsLov:
+  //   'ID'   = q=LocationId=<deliver-to location id>   (recommended)
+  //   'NAME' = q=LocationName='<lookup Meaning>'
+  const LOCATION_MATCH_BY = 'ID';
+  // locationsLov returned no row / no org, the call failed, or the
+  // lookup SITE row has no <ORG>: true = block, false = allow
+  const BLOCK_ORG_UNKNOWN = true;
+  // When locationsLov gives an InventoryOrganizationId but no
+  // InventoryOrganizationName, look the org up by id and compare the
+  // lookup <ORG> to its OrganizationCode / OrganizationName.
+  const RESOLVE_ORG_BY_ID = true;
+  const ORG_RESOURCE = 'inventoryOrganizations';
+  const ORG_FIELDS = 'OrganizationId,OrganizationCode,OrganizationName';
+  // locationsLov call for this location still in flight:
+  // true = block, false = allow
+  const BLOCK_ORG_PENDING = false;
+  const ORG_FETCH_CONCURRENCY = 5;
+  const ORG_FETCH_MAX_ATTEMPTS = 2;
+
+  const DEBUG = true;   // set false before publishing
+
+  // Location REST API tracing. Logs every locationsLov call with the
+  // prefix [PEG][LOC-API], independent of DEBUG. Set false to silence.
+  const LOG_LOCATION_API = true;
+
+  // ------------------------------------------------------------
+  // PAGE GUARD
+  // ------------------------------------------------------------
+  const DELIVERY_ONLY_FIELDS = [
+    'ChargeAccount',
+    'chargeAccount',
+    'BudgetDate',
+    'DestinationSubinventory',
+    'DeliverToCustomerLocationId',
+    'RequestedDeliveryDate'
+  ];
+  const DELIVERY_URL_HINTS = ['delivery', 'billing'];
+  const SKIP_WHEN_PAGE_UNKNOWN = true;
+
+  const LOOKUP_URL =
+    FSCM_BASE + LOOKUP_RESOURCE
+    + '?q=LookupType=' + encodeURIComponent("'" + LOOKUP_TYPE + "'")
+    + '&fields=LookupCode,Meaning,Description&limit=500&onlyData=true';
+
+  const LOC_FIELDS = [
+    'LocationId', 'LocationCode', 'LocationName', 'ActiveStatus',
+    'EffectiveStartDate', 'EffectiveEndDate',
+    'InventoryOrganizationId', 'InventoryOrganizationName'
+  ].join(',');
+
+  const cache = { state: 'idle', lineTypes: {}, sites: {}, attempts: 0 };
+  // locationId -> { state: loading|ready|missing|error, org, name, attempts }
+  const locCache = {};
+  const dumped = {};
+  const str = v => String(v == null ? '' : v).trim();
+  const log = function () { if (DEBUG) console.log.apply(console, arguments); };
+  const locLog = function () {
+    if (!LOG_LOCATION_API) return;
+    const args = Array.prototype.slice.call(arguments);
+    args.unshift('[PEG][LOC-API]');
+    console.log.apply(console, args);
+  };
+
+  // Same-origin fetch: the browser sends the Fusion session cookie.
+  const sessionFetch = url => fetch(url, {
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json' }
+  }).then(r => (r.ok ? r.json() : Promise.reject('HTTP ' + r.status)));
+
+  // ------------------------------------------------------------
+  // Lookup load
+  // ------------------------------------------------------------
+  function load() {
+    if (cache.state === 'loading' || cache.state === 'ready') return;
+    if (cache.attempts >= 3) return;
+    cache.attempts += 1;
+    cache.state = 'loading';
+    sessionFetch(LOOKUP_URL)
+      .then(data => {
+        const items = data.items || [];
+        if (!items.length) throw 'no rows returned for ' + LOOKUP_TYPE;
+        const lt = {};
+        const st = {};
+        items.forEach(row => {
+          const code = str(row.LookupCode);
+          if (!code) return;
+          const p = str(row.Description).split('|').map(s => s.trim().toUpperCase());
+          if (p[0] === 'LINETYPE' && p[1]) {
+            if (p[1] !== SHARED_CLASS && VALID_CLASSES.indexOf(p[1]) < 0) {
+              console.warn('[PEG] line type ' + code + ' has unknown class "'
+                + p[1] + '" - expected CONSUMABLE, INVENTORY or ' + SHARED_CLASS);
+            }
+            lt[code] = p[1];
+          } else if (p[0] === 'SITE' && p[2]) {
+            // <CLASS> may be a comma separated list: a site can accept
+            // both CONSUMABLE and INVENTORY lines.
+            const klasses = p[2].split(',')
+              .map(s => s.trim())
+              .filter(Boolean);
+            klasses.forEach(k => {
+              if (VALID_CLASSES.indexOf(k) < 0) {
+                console.warn('[PEG] site ' + code + ' has unknown class "'
+                  + k + '" - expected CONSUMABLE or INVENTORY');
+              }
+            });
+            // <ORG> may be "POC" or "POC#300000004512345"
+            const orgTok = (p[1] || '').split('#');
+            st[code] = {
+              name: str(row.Meaning),
+              org: (orgTok[0] || '').trim(),
+              orgId: (orgTok[1] || '').trim(),
+              klasses: klasses
+            };
+          }
+        });
+        if (!Object.keys(lt).length) throw 'no LINETYPE rows found';
+        cache.lineTypes = lt;
+        cache.sites = st;
+        cache.state = 'ready';
+        console.log('[PEG] ' + LOOKUP_TYPE + ' loaded: '
+          + Object.keys(lt).length + ' line types, '
+          + Object.keys(st).length + ' sites');
+        log('[PEG] lineTypes', lt);
+        log('[PEG] sites', st);
+
+        // Preload inventory orgs for every mapped site so the
+        // synchronous rule has the answer ready.
+        if (ENFORCE_ORG_CHECK) {
+          const ids = Object.keys(st);
+          const t0 = Date.now();
+          locLog('PRELOAD START - ' + ids.length + ' site location(s):', ids);
+          runPool(ids, fetchLocation, ORG_FETCH_CONCURRENCY)
+            .then(() => {
+              locLog('PRELOAD DONE in ' + (Date.now() - t0) + ' ms');
+              if (LOG_LOCATION_API && console.table) {
+                console.table(ids.map(id => {
+                  const e = locCache[id] || {};
+                  return {
+                    LocationId: id,
+                    LookupName: st[id].name,
+                    LookupOrg: st[id].org + (st[id].orgId ? '#' + st[id].orgId : ''),
+                    LookupClasses: st[id].klasses.join(','),
+                    ApiName: e.name || '',
+                    ApiOrg: e.org || '',
+                    ApiOrgCode: e.orgCode || '',
+                    ApiOrgId: e.orgId || '',
+                    State: e.state || 'not called',
+                    Match: e.state === 'ready'
+                      ? (orgMatches(e, st[id]) ? 'YES' : 'NO') : '-'
+                  };
+                }));
+              }
+            });
+        } else {
+          locLog('Rule 3 disabled (ENFORCE_ORG_CHECK=false) - no location calls');
+        }
+      })
+      .catch(err => {
+        cache.state = 'error';
+        console.error('[PEG] ' + LOOKUP_TYPE + ' load failed (attempt '
+          + cache.attempts + '):', err);
+      });
+  }
+
+  // ------------------------------------------------------------
+  // HCM locationsLov -> InventoryOrganizationName
+  // ------------------------------------------------------------
+  function runPool(ids, worker, size) {
+    let i = 0;
+    const next = () => {
+      if (i >= ids.length) return Promise.resolve();
+      const id = ids[i];
+      i += 1;
+      return worker(id).then(next, next);
+    };
+    const lanes = [];
+    for (let k = 0; k < Math.min(size, ids.length); k += 1) lanes.push(next());
+    return Promise.all(lanes);
+  }
+
+  function locationUrl(locationId) {
+    const site = cache.sites[locationId];
+    const q = (LOCATION_MATCH_BY === 'NAME' && site && site.name)
+      ? "LocationName='" + site.name + "'"
+      : 'LocationId=' + locationId;
+    return HCM_BASE + 'locationsLov?q=' + encodeURIComponent(q)
+      + '&fields=' + LOC_FIELDS + '&limit=25&onlyData=true';
+  }
+
+  // Location rows are date-effective: prefer the active, current row.
+  function pickCurrentRow(items, locationId) {
+    const today = new Date().toISOString().slice(0, 10);
+    const live = items.filter(r =>
+      str(r.ActiveStatus).toUpperCase() === 'A'
+      && (!r.EffectiveStartDate || r.EffectiveStartDate <= today)
+      && (!r.EffectiveEndDate || r.EffectiveEndDate >= today));
+    const pool = live.length ? live : items;
+    return pool.find(r => str(r.LocationId) === locationId) || pool[0] || null;
+  }
+
+  let locCallSeq = 0;
+
+  function fetchLocation(locationId) {
+    const cur = locCache[locationId];
+    if (cur && cur.state !== 'error') {
+      locLog('SKIP ' + locationId + ' - already ' + cur.state
+        + (cur.org ? ' (org=' + cur.org + ')' : ''));
+      return Promise.resolve();
+    }
+    const attempts = ((cur && cur.attempts) || 0) + 1;
+    if (attempts > ORG_FETCH_MAX_ATTEMPTS) {
+      locLog('SKIP ' + locationId + ' - max attempts ('
+        + ORG_FETCH_MAX_ATTEMPTS + ') reached');
+      return Promise.resolve();
+    }
+
+    const entry = { state: 'loading', org: '', name: '', attempts };
+    locCache[locationId] = entry;
+
+    locCallSeq += 1;
+    const seq = locCallSeq;
+    const url = locationUrl(locationId);
+    const t0 = Date.now();
+    locLog('#' + seq + ' REQUEST  loc=' + locationId
+      + ' attempt=' + attempts + ' matchBy=' + LOCATION_MATCH_BY);
+    locLog('#' + seq + ' GET ' + url);
+    locLog('#' + seq + ' decoded q=' + decodeURIComponent(
+      (url.split('q=')[1] || '').split('&')[0]));
+
+    return fetch(url, {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' }
+    })
+      .then(r => {
+        locLog('#' + seq + ' RESPONSE HTTP ' + r.status + ' '
+          + (r.statusText || '') + ' in ' + (Date.now() - t0) + ' ms');
+        return r.ok ? r.json() : Promise.reject('HTTP ' + r.status);
+      })
+      .then(data => {
+        const items = data.items || [];
+        locLog('#' + seq + ' rows=' + items.length
+          + ' hasMore=' + data.hasMore, items);
+        const row = pickCurrentRow(items, locationId);
+        if (!row) {
+          entry.state = 'missing';
+          locLog('#' + seq + ' RESULT missing - no row for ' + locationId);
+          console.warn('[PEG] locationsLov returned no row for ' + locationId);
+          return;
+        }
+        entry.name = str(row.LocationName);
+        entry.org = str(row.InventoryOrganizationName).toUpperCase();
+        entry.orgId = str(row.InventoryOrganizationId);
+        entry.state = (entry.org || entry.orgId) ? 'ready' : 'missing';
+        const site = cache.sites[locationId] || {};
+        locLog('#' + seq + ' RESULT ' + entry.state
+          + ' | LocationId=' + str(row.LocationId)
+          + ' | LocationName=' + entry.name
+          + ' | InventoryOrganizationName=' + (entry.org || '(blank)')
+          + ' | InventoryOrganizationId=' + str(row.InventoryOrganizationId)
+          + ' | ActiveStatus=' + str(row.ActiveStatus)
+          + ' | lookupOrg=' + (site.org || '(none)')
+          + ' | match=' + (entry.org && entry.org === site.org ? 'YES' : 'NO'));
+        if (!entry.org) {
+          console.warn('[PEG] location ' + entry.name + ' (' + locationId
+            + ') has no InventoryOrganizationName'
+            + (entry.orgId ? ' - InventoryOrganizationId=' + entry.orgId : ''));
+          // Name is null but the id is there (POC sites): resolve it.
+          if (RESOLVE_ORG_BY_ID && entry.orgId) return fetchOrgById(entry);
+        }
+      })
+      .catch(err => {
+        entry.state = 'error';
+        locLog('#' + seq + ' ERROR after ' + (Date.now() - t0) + ' ms:', err);
+        console.error('[PEG] locationsLov failed for ' + locationId
+          + ' (attempt ' + attempts + '):', err);
+      });
+  }
+
+  // OrganizationId -> { code, name }. Shared across locations.
+  const orgById = {};
+
+  // locationsLov gave an id but no name: resolve code/name once.
+  function fetchOrgById(entry) {
+    const id = entry.orgId;
+    if (orgById[id]) {
+      entry.orgCode = orgById[id].code;
+      entry.org = entry.org || orgById[id].name;
+      entry.state = 'ready';
+      locLog('ORG ' + id + ' served from cache: code=' + entry.orgCode);
+      return Promise.resolve();
+    }
+    const url = FSCM_BASE + ORG_RESOURCE
+      + '?q=' + encodeURIComponent('OrganizationId=' + id)
+      + '&fields=' + ORG_FIELDS + '&limit=1&onlyData=true';
+    locLog('ORG GET ' + url);
+    return sessionFetch(url)
+      .then(data => {
+        const o = (data.items || [])[0];
+        if (!o) {
+          locLog('ORG ' + id + ' not found in ' + ORG_RESOURCE);
+          entry.state = 'missing';
+          return;
+        }
+        const code = str(o.OrganizationCode).toUpperCase();
+        const name = str(o.OrganizationName).toUpperCase();
+        orgById[id] = { code: code, name: name };
+        entry.orgCode = code;
+        entry.org = entry.org || name;
+        entry.state = (code || name) ? 'ready' : 'missing';
+        locLog('ORG ' + id + ' resolved: code=' + code + ' name=' + name);
+      })
+      .catch(err => {
+        entry.state = 'missing';
+        console.warn('[PEG] ' + ORG_RESOURCE + ' lookup failed for org '
+          + id + ':', err);
+      });
+  }
+
+  // True when the lookup <ORG> matches anything we know about the
+  // location's inventory organization (name, code, or id).
+  function orgMatches(loc, site) {
+    if (site.orgId && loc.orgId && site.orgId === loc.orgId) return true;
+    if (!site.org) return false;
+    if (loc.org && loc.org === site.org) return true;
+    if (loc.orgCode && loc.orgCode === site.org) return true;
+    return false;
+  }
+
+  // Rule 3. Returns TRUE to block, FALSE to allow.
+  function checkOrg(locationId, site) {
+    if (!site.org && !site.orgId) {
+      console.warn('[PEG] lookup SITE row ' + locationId
+        + ' has no <ORG> (expected SITE|<ORG>|<CLASS>)');
+      return BLOCK_ORG_UNKNOWN;
+    }
+    const loc = locCache[locationId];
+    locLog('RULE3 CHECK loc=' + locationId + ' cache='
+      + (loc ? loc.state : 'empty') + ' apiOrg=' + ((loc && loc.org) || '-')
+      + ' lookupOrg=' + site.org
+      + (loc && loc.state !== 'error' ? ' (served from cache, no call)' : ' (calling API)'));
+    if (!loc || loc.state === 'loading') {
+      fetchLocation(locationId);
+      log('[PEG] org for ' + locationId + ' still loading');
+      return BLOCK_ORG_PENDING;
+    }
+    if (loc.state === 'error') {
+      fetchLocation(locationId);   // bounded retry
+      return BLOCK_ORG_UNKNOWN;
+    }
+    if (loc.state === 'missing') return BLOCK_ORG_UNKNOWN;
+    if (!orgMatches(loc, site)) {
+      log('[PEG] FAIL org: ' + loc.name + ' belongs to '
+        + (loc.org || loc.orgCode || '(name null)')
+        + ' [id=' + (loc.orgId || '-') + ']'
+        + ', lookup expects ' + (site.org || '')
+        + (site.orgId ? '#' + site.orgId : ''));
+      return true;
+    }
+    return false;
+  }
+
+  load();
+
+  // ------------------------------------------------------------
+  // Case-insensitive attribute lookup across possible names.
+  // ------------------------------------------------------------
+  function pick(obj, names) {
+    if (!obj) return '';
+    const keys = Object.keys(obj);
+    for (let i = 0; i < names.length; i += 1) {
+      const want = names[i].toLowerCase();
+      for (let j = 0; j < keys.length; j += 1) {
+        if (keys[j].toLowerCase() !== want) continue;
+        let val = obj[keys[j]];
+        if (val && typeof val === 'object') {
+          if (val.value !== undefined) val = val.value;
+          else if (val.id !== undefined) val = val.id;
+          else continue;
+        }
+        if (val != null && val !== '') return val;
+      }
+    }
+    return '';
+  }
+
+  // ------------------------------------------------------------
+  // Page detection
+  // ------------------------------------------------------------
+  function fieldKeys(context) {
+    const { $fields } = context;
+    const fields = (context && context.$fields) || {};
+    try { return Object.keys(fields); } catch (e) { return []; }
+  }
+
+  function urlSaysDelivery() {
+    try {
+      const href = String(window.location.href).toLowerCase();
+      return DELIVERY_URL_HINTS.some(h => href.indexOf(h) >= 0);
+    } catch (e) { return false; }
+  }
+
+  function isDeliveryPage(context, tag) {
+    const { $fields } = context;
+    const keys = fieldKeys(context);
+    if (DEBUG && !dumped[tag]) {
+      dumped[tag] = true;
+      console.log('[PEG][' + tag + '] $fields keys on this page:', keys);
+      try { console.log('[PEG][' + tag + '] url:', window.location.href); } catch (e) { /* ignore */ }
+    }
+    const lower = keys.map(k => k.toLowerCase());
+    const marker = DELIVERY_ONLY_FIELDS
+      .some(m => lower.indexOf(m.toLowerCase()) >= 0);
+    if (marker) return true;
+    if (urlSaysDelivery()) return true;
+    return false;
+  }
+
+  // ------------------------------------------------------------
+  // Builds a flat line object from whatever the page context holds.
+  // ------------------------------------------------------------
+  function getLine(context) {
+    const { $fields, $value } = context;
+    const fields = (context && context.$fields) || {};
+    const merged = {};
+    Object.keys(fields).forEach(k => {
+      const fld = fields[k];
+      let v = null;
+      try {
+        v = (fld && typeof fld.$value === 'function') ? fld.$value() : null;
+      } catch (e) { v = null; }
+      if (v == null) return;
+      if (typeof v === 'object' && !Array.isArray(v)) {
+        const row = v.purchaseRequisitionsLine || v;
+        if (row && typeof row === 'object') {
+          Object.keys(row).forEach(rk => {
+            if (merged[rk] === undefined) merged[rk] = row[rk];
+          });
+        }
+      } else if (merged[k] === undefined) {
+        merged[k] = v;
+      }
+    });
+    return merged;
+  }
+
+  // ------------------------------------------------------------
+  // Core evaluation. Returns TRUE to raise the error, FALSE to allow.
+  // ------------------------------------------------------------
+  function evaluate(context) {
+    if (cache.state !== 'ready') {
+      load();
+      log('[PEG] lookup not ready (' + cache.state + ') - skipping');
+      return false;
+    }
+
+    const line = getLine(context);
+    const lineTypeId = str(pick(line,
+      ['LineTypeId', 'lineTypeId', 'LineType', 'lineType']));
+    const destType = str(pick(line,
+      ['DestinationTypeCode', 'destinationTypeCode', 'DestinationType']))
+      .toUpperCase();
+    const locationId = str(pick(line,
+      ['DeliverToLocationId', 'deliverToLocationId', 'LocationId', 'locationId']));
+
+    log('[PEG] lt=' + lineTypeId + ' dest=' + destType + ' loc=' + locationId);
+
+    if (!destType) {
+      log('[PEG] no destination type in context - skipping');
+      return false;
+    }
+
+    // ----- Resolve the class for this line -----
+    const mapped = lineTypeId ? (cache.lineTypes[lineTypeId] || '') : '';
+    let klass = '';
+    let enforceRule1 = false;
+
+    if (mapped && mapped !== SHARED_CLASS) {
+      // Line type is dedicated to one class: it drives the destination.
+      klass = mapped;
+      enforceRule1 = true;
+    } else if (mapped === SHARED_CLASS) {
+      // Line type is shared by both flows (e.g. seeded Goods): the
+      // destination decides the class, so Rule 1 has nothing to check.
+      klass = (destType === 'EXPENSE') ? 'CONSUMABLE' : 'INVENTORY';
+      log('[PEG] line type ' + lineTypeId + ' is ' + SHARED_CLASS
+        + ' - class=' + klass + ' taken from destination, Rule 1 skipped');
+    } else if (lineTypeId) {
+      log('[PEG] line type ' + lineTypeId + ' not in scope');
+      return false;
+    } else if (INFER_CLASS_FROM_DEST) {
+      klass = (destType === 'EXPENSE') ? 'CONSUMABLE' : 'INVENTORY';
+      console.warn('[PEG] LineTypeId not present in this page context - '
+        + 'inferring class=' + klass + ' from destination type. '
+        + 'Rule 1 cannot be enforced here.');
+    } else {
+      console.warn('[PEG] LineTypeId not present in this page context - skipping');
+      return false;
+    }
+
+    // ----- Rule 1 - line type drives destination type -----
+    if (enforceRule1) {
+      const expected = DEST_FOR_CLASS[klass];
+      if (!expected) {
+        log('[PEG] class ' + klass + ' has no DEST_FOR_CLASS entry'
+          + ' - Rule 1 not checked');
+      } else if (destType !== expected) {
+        log('[PEG] FAIL destination: class=' + klass
+          + ' expected=' + expected + ' actual=' + destType);
+        return true;
+      }
+    }
+
+    // ----- Rule 2 - location must belong to a site of the same class -----
+    if (!locationId) {
+      log('[PEG] no deliver-to location yet - skipping site check');
+      return false;
+    }
+    const site = cache.sites[locationId];
+    if (!site) {
+      console.warn('[PEG] location ' + locationId + ' not mapped in ' + LOOKUP_TYPE);
+      return BLOCK_UNMAPPED_SITE;
+    }
+    if (site.klasses.length > 1 && MULTI_CLASS_SITE === 'BLOCK') {
+      log('[PEG] FAIL site: ' + site.name + ' is mixed use ('
+        + site.klasses.join(',') + ') - not orderable for any class');
+      return true;
+    }
+    if (site.klasses.indexOf(klass) < 0) {
+      log('[PEG] FAIL site: ' + site.name + ' is ' + site.klasses.join(',')
+        + ', line is ' + klass);
+      return true;
+    }
+
+    // ----- Rule 3 - location's inventory org must match lookup <ORG> -----
+    if (ENFORCE_ORG_CHECK && checkOrg(locationId, site)) {
+      return true;
+    }
+
+    log('[PEG] PASS');
+    return false;
+  }
+
+  // ------------------------------------------------------------
+  // ENTRY POINT 1 - Delivery and Billing Details. All rules enforced.
+  // ------------------------------------------------------------
+  function runConditionDelivery(context) {
+    if (!isDeliveryPage(context, 'delivery')) {
+      if (SKIP_WHEN_PAGE_UNKNOWN) {
+        log('[PEG] page guard: not recognised as Delivery and Billing '
+          + 'Details - skipping');
+        return false;
+      }
+      log('[PEG] page guard: unknown page, running anyway');
+    }
+    return evaluate(context);
+  }
+
+  // ------------------------------------------------------------
+  // ENTRY POINT 2 - New Requisition Line. Never blocks.
+  // ------------------------------------------------------------
+  function runConditionRequisitionLine(context) {
+    const { $fields } = context;
+    if (DEBUG && !dumped['line']) {
+      dumped['line'] = true;
+      console.log('[PEG][line] $fields keys on this page:', fieldKeys(context));
+    }
+    log('[PEG] New Requisition Line - rule disabled by design');
+    return false;
+  }
+
+  /**
+   *
+   * @param {object} context
+   * @return {boolean}
+   */
+  function runCondition(context) {
+    const { $componentContext, $fields, $modules, $user } = context;
+
+    if ($modules.pEGConsumablePO77182.runCondition) {
+      return true;
+    }
+
+    return false;
+  }
+
+  // Default entry point wired to the Delivery and Billing Details rule.
+  const runCondition = runConditionDelivery;
+
+  return { fieldKeys, isDeliveryPage, getLine, evaluate, runConditionDelivery, runConditionRequisitionLine, runCondition };
+});

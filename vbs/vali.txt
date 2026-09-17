@@ -1,0 +1,374 @@
+/* eslint-disable dot-notation */
+define([], () => {
+  'use strict';
+
+  // ================================================================
+  // PEG PR/PO Restriction - ADO 78594
+  //
+  // Lookup PEG_PO_RULES = combinations that are NOT allowed.
+  //   Meaning : <LineTypeId>||<LineTypeName>||<Location>||<DestType>
+  //   Tag     : <Inventory Org>
+  //   match -> return TRUE (error)   no match -> FALSE (allowed)
+  //
+  // INVENTORY ORG
+  //   The org is taken ONLY from InventoryOrganizationName returned by
+  //   locationsLov for the Deliver-to Location. The org field on the
+  //   page is never used - it comes through as a number (11750).
+  //     GET /hcmRestApi/.../locationsLov?q=LocationId=<id>
+  //         &fields=...,InventoryOrganizationName&limit=25
+  //   Rows are NOT filtered on ActiveStatus: in this pod only the
+  //   inactive rows carry InventoryOrganizationName, the active ones
+  //   return null. The first row with a name wins.
+  //
+  // CASE
+  //   Every value from the page, the lookup and the REST call goes
+  //   through N() -> trimmed, single spaced, UPPERCASE. So Stillwater,
+  //   STILLWATER and stillwater are all the same.
+  //
+  // CACHING
+  //   The lookup is read once per page load. After editing the lookup,
+  //   reload the page, or run PEG.reload() in the console - both fetch
+  //   with cache: no-store so a stale browser copy is never used.
+  //
+  // Console helpers
+  //   PEG.reload()   re-read the lookup now
+  //   PEG.rules()    the loaded rows
+  //   PEG.loc(id)    run the locationsLov call for one location
+  //   PEG.diag()     print the field dump
+  // ================================================================
+
+  const LOOKUP = 'PEG_PO_RULES';
+  const LOG = true;                    // false before go-live
+  const DUMPS = 2;                     // field dumps per page load
+
+  const PROBE = [
+    'LineTypeId', 'LineType', 'LineTypeCode', 'LineTypeName',
+    'DestinationTypeCode', 'DestinationType',
+    'DeliverToLocationId', 'DeliverToLocation', 'DeliverToLocationName',
+    'LocationId', 'LocationName', 'LocationCode',
+    'ItemId', 'ChargeAccount', 'Quantity'
+  ];
+  const GROUPS = ['purchaseRequisitionsLine', 'base', 'overlay'];
+
+  // ---------- page guard ------------------------------------------
+  // The rule must run ONLY on Delivery and Billing Details, never on
+  // the first page (New Requisition Line).
+  //
+  // The page is identified by fields that exist only on Delivery and
+  // Billing Details - the Billing section and the delivery details.
+  // They are asked for BY NAME; listing $fields does not work, it only
+  // ever returns overlay / purchaseRequisitionsLine / metadata / base /
+  // paths. If none of these is present the rule does not run.
+  //
+  // Set PAGE_GUARD = false to run everywhere (for testing only).
+  const PAGE_GUARD = true;
+
+  // Only BILLING fields are used as markers. The Billing section
+  // exists on Delivery and Billing Details and nowhere else.
+  // Deliver-to Location, Destination Type and Requested Delivery Date
+  // are NOT markers - the New Requisition Line page has them too,
+  // which is why the previous guard let that page through.
+  const DELIVERY_ONLY_FIELDS = [
+    'ChargeAccount', 'ChargeAccountId', 'ChargeAccountCombination',
+    'BudgetDate', 'DistributionCombinationId', 'DistributionSetId',
+    'PercentageDistribution', 'DestinationSubinventory',
+    'DestinationSubinventoryCode', 'DeliverToCustomerLocationId'
+  ];
+
+  // Names checked only to describe the page in the log.
+  const SHARED_FIELDS = ['DeliverToLocationId', 'DestinationTypeCode',
+    'RequestedDeliveryDate', 'UNNumber', 'HazardClass', 'ItemId', 'Quantity'];
+
+  let rules = null;
+  let attempts = 0;                    // stops an endless retry loop
+  let dumps = 0;
+  let lastCtx = null;
+  const orgs = {};                     // locationId -> { name, org }
+
+  // Trim, collapse spaces, UPPERCASE. Used on BOTH sides of every
+  // comparison, so case never matters.
+  const N = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().toUpperCase();
+  const log = m => { if (LOG) console.log('[PEG] ' + m); };
+
+  // cache: no-store - never serve a stale lookup from the browser.
+  const get = u => fetch(u, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: { Accept: 'application/json' }
+  }).then(r => (r.ok ? r.json() : Promise.reject('HTTP ' + r.status)));
+
+  // ---------- 1. lookup -------------------------------------------
+  // NOTE: do NOT add extra query parameters (a cache buster such as
+  // &_=123 for example). Oracle REST rejects unknown parameters with
+  // HTTP 400. Freshness is handled by cache:'no-store' above.
+  function loadRules(force, withTag) {
+    if (rules && !force) return;
+    if (force) attempts = 0;
+    if (attempts >= 3) return;
+    attempts += 1;
+    rules = [];
+
+    const useTag = (withTag !== false);
+    const fields = useTag
+      ? 'LookupCode,Meaning,Description,Tag'
+      : 'LookupCode,Meaning,Description';
+    const url = '/fscmRestApi/resources/11.13.18.05/standardLookupsLOV'
+      + '?q=' + encodeURIComponent("LookupType='" + LOOKUP + "'")
+      + '&fields=' + fields + '&limit=500&onlyData=true';
+    log('lookup GET ' + url);
+
+    get(url).then(d => {
+      rules = (d.items || []).map(r => {
+        // 4 values in Meaning; older rows keep the last 2 in Description.
+        let p = String(r.Meaning || '').split('||');
+        if (p.length < 4) p = p.concat(String(r.Description || '').split('||'));
+        p = p.map(N);
+        return {
+          code: r.LookupCode,
+          lineTypeId: p[0] || '', lineTypeName: p[1] || '',
+          location: p[2] || '', dest: p[3] || '', org: N(r.Tag)
+        };
+      });
+      log('lookup loaded at ' + new Date().toLocaleTimeString()
+        + ' - ' + rules.length + ' blocked combination(s)');
+      rules.forEach(r => log('  row ' + r.code + ' = ' + r.lineTypeId + ' || '
+        + r.lineTypeName + ' || ' + r.location + ' || ' + r.dest
+        + '   tag=' + (r.org || '-')));
+    }).catch(e => {
+      rules = null;
+      // Tag is not queryable on every pod: drop it and try once more.
+      if (useTag) {
+        console.warn('[PEG] lookup with Tag failed (' + e
+          + ') - retrying without Tag; the org condition will be skipped');
+        loadRules(false, false);
+        return;
+      }
+      console.error('[PEG] lookup failed (attempt ' + attempts + '): ' + e
+        + ' - URL was ' + url);
+    });
+  }
+  loadRules();
+
+  // ---------- 2. read a field by name -----------------------------
+  function valueOf(f) {
+    if (f === undefined || f === null) return { ok: false };
+    if (typeof f !== 'object') return { ok: true, how: 'plain', value: f };
+    const ways = ['$value', 'value', 'getValue', 'data', '$data'];
+    for (let i = 0; i < ways.length; i += 1) {
+      let raw;
+      try { raw = f[ways[i]]; } catch (e) { continue; }
+      if (raw === undefined) continue;
+      if (typeof raw === 'function') {
+        let v;
+        try { v = raw.call(f); } catch (e) { continue; }
+        if (v !== undefined && v !== null && v !== '') return { ok: true, how: ways[i] + '()', value: v };
+      } else if (raw !== null && raw !== '') {
+        return { ok: true, how: '.' + ways[i], value: raw };
+      }
+    }
+    return { ok: false };
+  }
+
+  function field(context, name) {
+    const { $fields } = context;
+    const root = (context && context.$fields) || {};
+    let keys = [];
+    try { keys = Object.keys(root); } catch (e) { keys = []; }
+    const groups = GROUPS.concat(keys.filter(k => GROUPS.indexOf(k) < 0));
+    let why = 'not found';
+
+    for (let i = 0; i <= groups.length; i += 1) {
+      const where = (i === groups.length) ? '$fields' : '$fields.' + groups[i];
+      let node;
+      try { node = (i === groups.length) ? root : root[groups[i]]; } catch (e) { continue; }
+      if (!node || typeof node !== 'object') continue;
+      let f;
+      try { f = node[name]; } catch (e) { continue; }
+      if (f === undefined || f === null) continue;
+
+      const got = valueOf(f);
+      if (!got.ok) { why = 'present at ' + where + ' but no value'; continue; }
+      const v = got.value;
+      if (typeof v === 'object') {
+        const code = v.value !== undefined ? v.value : v.id;
+        const text = v.label || v.displayValue || v.text || v.LocationName || code;
+        return { found: true, where, how: got.how,
+          code: String(code == null ? '' : code), text: String(text == null ? '' : text) };
+      }
+      return { found: true, where, how: got.how, code: String(v), text: String(v) };
+    }
+    return { found: false, where: '', how: '', code: '', text: '', why };
+  }
+
+  function first(context, names) {
+    for (let i = 0; i < names.length; i += 1) {
+      const f = field(context, names[i]);
+      if (f.found) return f;
+    }
+    return { found: false, where: '', code: '', text: '' };
+  }
+
+  function diag(context) {
+    const { $fields } = context;
+    const ctx = context || lastCtx;
+    if (!ctx) { console.log('[PEG] no context captured yet'); return; }
+    const L = ['================ PEG FIELD DUMP ================'];
+    let fk = [];
+    try { fk = Object.keys(ctx.$fields || {}); } catch (e) { fk = []; }
+    L.push('$fields keys: ' + (fk.join(', ') || '(none)'));
+    PROBE.forEach(n => {
+      const f = field(ctx, n);
+      L.push('  ' + n + ' : ' + (f.found
+        ? ('FOUND at ' + f.where + ' via ' + f.how + '  code=' + f.code + '  text=' + f.text)
+        : ('-- ' + f.why)));
+    });
+    L.push('================================================');
+    console.log('[PEG]\n' + L.join('\n'));
+  }
+
+  // ---------- 3. location -> InventoryOrganizationName -------------
+  // Only InventoryOrganizationName is used. No ActiveStatus filter:
+  // the active rows return null, the inactive rows carry the org.
+  function locationInfo(locationId) {
+    if (!locationId) return { name: '', org: '' };
+    if (orgs[locationId] !== undefined) return orgs[locationId];
+
+    const entry = { name: '', org: '' };
+    orgs[locationId] = entry;
+
+    const url = '/hcmRestApi/resources/11.13.18.05/locationsLov'
+      + '?q=LocationId=' + locationId
+      + '&fields=LocationId,LocationCode,LocationName,ActiveStatus,'
+      + 'InventoryOrganizationName'
+      + '&limit=25&onlyData=true';
+    log('locationsLov GET ' + url);
+
+    get(url).then(d => {
+      const items = d.items || [];
+      log('locationsLov rows=' + items.length);
+      items.forEach(r => log('    LocationId=' + r.LocationId
+        + '  Code=' + r.LocationCode + '  Name=' + r.LocationName
+        + '  Active=' + r.ActiveStatus
+        + '  InventoryOrganizationName=' + r.InventoryOrganizationName));
+
+      // The row that actually carries InventoryOrganizationName wins.
+      const withOrg = items.filter(r => r.InventoryOrganizationName);
+      const row = withOrg[0] || items[0] || {};
+      entry.name = N(row.LocationName || row.LocationCode);
+      entry.org = N(row.InventoryOrganizationName);
+
+      log('locationsLov chosen: LocationName=' + (row.LocationName || '-')
+        + '  InventoryOrganizationName=' + (row.InventoryOrganizationName || '(null)'));
+      if (!entry.org) {
+        console.warn('[PEG] location ' + locationId
+          + ' has no InventoryOrganizationName on any row'
+          + ' - the Tag condition cannot be checked for it');
+      }
+    }).catch(e => {
+      delete orgs[locationId];
+      console.warn('[PEG] locationsLov failed for ' + locationId + ':', e);
+    });
+
+    return entry;
+  }
+
+  // Is this the Delivery and Billing Details page?
+  // Logs exactly which markers were found so the list can be
+  // corrected from the console if a page is judged wrongly.
+  function isDeliveryPage(context) {
+    const { $componentContext } = context;
+    const found = DELIVERY_ONLY_FIELDS.filter(n => field(context, n).found);
+    const shared = SHARED_FIELDS.filter(n => field(context, n).found);
+
+    // $componentContext often tells the pages apart as well - log it.
+    let cc = '';
+    try {
+      const c = context.$componentContext || {};
+      cc = Object.keys(c).map(k => k + '=' + c[k]).join(' | ');
+    } catch (e) { cc = '(unreadable)'; }
+
+    log('PAGE CHECK: billing markers found = [' + (found.join(', ') || 'none')
+      + ']  other fields present = [' + (shared.join(', ') || 'none') + ']');
+    if (cc) log('PAGE CHECK: componentContext ' + cc);
+
+    return found.length > 0;
+  }
+
+  // ---------- 4. the rule -----------------------------------------
+  function runCondition(context) {
+    lastCtx = context;
+    if (!rules || !rules.length) { loadRules(); log('lookup not ready - allow'); return false; }
+    if (LOG && dumps < DUMPS) { dumps += 1; diag(context); }
+
+    // Only Delivery and Billing Details. The first page never blocks.
+    if (PAGE_GUARD && !isDeliveryPage(context)) {
+      log('NOT the Delivery and Billing Details page - rule skipped, allow');
+      return false;
+    }
+
+    const ltId = first(context, ['LineTypeId', 'LineType']).code;
+    const ltNm = first(context, ['LineType', 'LineTypeName', 'LineTypeCode']).text;
+    const locId = first(context, ['DeliverToLocationId', 'LocationId']).code;
+    const locNm = first(context, ['DeliverToLocation', 'DeliverToLocationName',
+      'LocationName', 'LocationCode']).text;
+    const dst = first(context, ['DestinationTypeCode', 'DestinationType']);
+
+    const lov = locationInfo(locId);   // the only source of the org
+
+    const ui = {
+      lineTypeId: N(ltId), lineTypeName: N(ltNm),
+      locationId: locId, location: N(locNm) || lov.name,
+      dest: N(dst.code) || N(dst.text),
+      org: lov.org                     // already uppercase
+    };
+
+    log('SCREEN: lineTypeId=' + ui.lineTypeId + ' lineTypeName=' + ui.lineTypeName
+      + ' | locationId=' + ui.locationId + ' location=' + ui.location
+      + ' | dest=' + ui.dest
+      + ' | InventoryOrganizationName=' + (ui.org || '(loading)'));
+
+    if (!ui.dest || (!ui.locationId && !ui.location)) {
+      log('line incomplete - allow'); return false;
+    }
+
+    for (let i = 0; i < rules.length; i += 1) {
+      const r = rules[i];
+      const okLine = (r.lineTypeId && r.lineTypeId === ui.lineTypeId)
+        || (r.lineTypeName && r.lineTypeName === ui.lineTypeName);
+      const okLoc = (r.location && r.location === ui.location)
+        || (r.location && r.location === N(ui.locationId));
+      const okDest = r.dest === ui.dest;
+      // Tag vs InventoryOrganizationName, both uppercase.
+      // Not checked while the REST call is still running.
+      const okOrg = !r.org || !ui.org || r.org === ui.org;
+
+      log('  row ' + r.code + ' [' + r.lineTypeName + '|' + r.location + '|'
+        + r.dest + '|' + (r.org || '-') + ']  lineType=' + okLine
+        + ' location=' + okLoc + ' dest=' + okDest + ' org=' + okOrg);
+
+      if (okLine && okLoc && okDest && okOrg) {
+        console.warn('[PEG] BLOCKED by lookup row ' + r.code);
+        return true;
+      }
+    }
+
+    log('no matching row - allow  (screen lineTypeId=' + ui.lineTypeId
+      + ', location=' + ui.location + ', dest=' + ui.dest
+      + ', org=' + (ui.org || '?') + ')');
+    return false;
+  }
+
+  function runConditionRequisitionLine() { return false; }
+
+  const api = {
+    runCondition, runConditionDelivery: runCondition, runConditionRequisitionLine,
+    reload: () => { rules = null; attempts = 0; Object.keys(orgs).forEach(k => delete orgs[k]); loadRules(true); },
+    rules: () => rules,
+    orgs: () => orgs,
+    loc: id => { delete orgs[id]; return locationInfo(id); },
+    diag: () => diag(lastCtx),
+    read: n => { const f = field(lastCtx, n); console.log('[PEG] ' + n + ' -> ' + JSON.stringify(f)); return f; }
+  };
+  try { window.PEG = api; } catch (e) { /* ignore */ }
+  return { field, first, diag, isDeliveryPage, runCondition };
+});
