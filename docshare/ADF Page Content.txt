@@ -1,0 +1,7 @@
+**ADF Page Customization in Oracle SaaS**
+
+The requested customization is **not feasible through the standard Oracle SaaS ADF page configuration**. The LOV values are controlled by the underlying ADF View Object/Model and application business logic.
+
+The requirement to dynamically change one LOV value based on the selection of another LOV and persist the changed value would require modification or extension of the underlying application logic.
+
+Therefore, this functionality **cannot be achieved using the available standard ADF page personalization or configuration options in Oracle SaaS**.
