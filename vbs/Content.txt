@@ -1,0 +1,8 @@
+Module loads once → calls loadBlockedRules(), which fires a Lookup REST call to fill blockedRules.
+VBS evaluates the rule via runCondition(context).
+Reads screen values — context fields + page labels.
+Checks if both fields are filled → if not, presumably no action (that branch box is blank/empty in the image).
+Checks if the lookup is loaded → same, blank branch if not.
+Checks if the pair matches a lookup row:
+No → Allow save
+Yes → Block save, show error
