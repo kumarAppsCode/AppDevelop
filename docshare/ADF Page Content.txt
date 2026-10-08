@@ -8,3 +8,8 @@ Therefore, this functionality **cannot be achieved using the available standard 
 
 
 #{empty bindings.ComnSupplyPrjDemandFlag.inputValue ? 'Yes' : 'No'}
+
+#{disabledAttributes != null and disabledAttributes['ComnSupplyPrjDemandFlag'] == true}
+
+#{bindings.ComnSupplyPrjDemandFlag.inputValue eq Yes ? 'Yes': "}
+
