@@ -5,3 +5,6 @@ The requested customization is **not feasible through the standard Oracle SaaS A
 The requirement to dynamically change one LOV value based on the selection of another LOV and persist the changed value would require modification or extension of the underlying application logic.
 
 Therefore, this functionality **cannot be achieved using the available standard ADF page personalization or configuration options in Oracle SaaS**.
+
+
+#{empty bindings.ComnSupplyPrjDemandFlag.inputValue ? 'Yes' : 'No'}
